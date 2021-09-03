@@ -26,7 +26,7 @@ class Result:
         self.dim = dim
         self.tests = {}
         self.verbose = verbose
-        if filename != "none":
+        if filename is not None:
             el = len(self.extension)
             if len(filename) <= el or filename[-el:] != self.extension:
                 filename += self.extension
@@ -49,7 +49,7 @@ class Result:
     def save(self):
         if self.is_par_mode():
             self.par_result.save()
-        elif self.filename:
+        elif self.filename is not None:
             data = self.get_data()
             safe_dump(self.filename, data)
         return self
