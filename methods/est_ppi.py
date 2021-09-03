@@ -1,21 +1,33 @@
+"""
+Projected pseudo-inversion (PPI) estimator by POVM measurements results. Density matrix is estimated by linear
+inversion of measurements results and eigenvalues projection on canonical simplex.
+"""
+
 import numpy as np
 
 
-def est_ppi(meas, data, dim):
-    Dim = np.prod(dim)
-    
-    M = [ m["povm"] for m in meas ]
-    M = np.concatenate(tuple(M), axis=0)
-    B = np.reshape(M, (M.shape[0],-1))
-    
-    prob = [ kj/np.sum(kj) for kj in data ]
-    prob = np.concatenate(tuple(prob))
-    
-    dm = np.reshape(np.linalg.pinv(B).dot(prob), (Dim,Dim), order="F")
-    dm = (dm+dm.conj().T)/2
-    dm = dm/np.trace(dm)
-    w, v = np.linalg.eig(dm)
-    return (v*project_probabilities(w)).dot(v.conj().T)
+def est_ppi():
+    """PPI estimator
+
+    :return: Estimator handler
+    """
+    def handler(meas, data, dim) -> np.ndarray:
+        dim = np.prod(dim)
+
+        operators = [m["povm"] for m in meas]
+        operators = np.concatenate(tuple(operators), axis=0)
+        meas_matrix = np.reshape(operators, (operators.shape[0], -1))
+
+        probabilities = [clicks / np.sum(clicks) for clicks in data]
+        probabilities = np.concatenate(tuple(probabilities))
+
+        dm = np.reshape(np.linalg.pinv(meas_matrix) @ probabilities, (dim, dim), order="F")
+        dm = (dm + dm.conj().T)/2
+        dm = dm / np.trace(dm)
+        w, v = np.linalg.eig(dm)
+        return (v*project_probabilities(w)) @ v.conj().T
+
+    return handler
 
 
 def project_probabilities(p):

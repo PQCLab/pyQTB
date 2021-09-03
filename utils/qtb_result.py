@@ -68,7 +68,7 @@ class Result:
 
     def set_cpu(self, cpu=None):
         if cpu is None:
-            cpu = get_cpu_info()["brand"]
+            cpu = get_cpu_info()["brand_raw"]
         if self.is_par_mode():
             self.par_result.set_cpu(cpu)
         self.cpu = cpu

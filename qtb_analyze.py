@@ -30,7 +30,7 @@ def qtb_analyze(fun_proto, fun_est, dim: list, tests="all", mtype="povm",
 
     for tcode in test_codes:
         test = test_desc[tcode]
-        test["nsample"] = test["nsample"][test["nsample"] <= max_nsample]
+        test["nsample"] = list(filter(lambda ntot: ntot <= max_nsample, test["nsample"]))
         result.init_test(tcode, test)
     result.save()
 

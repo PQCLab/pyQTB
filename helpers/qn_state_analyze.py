@@ -2,11 +2,13 @@ import numpy as np
 from qtb_analyze import qtb_analyze
 
 
-def qn_state_analyze(n: int,
-                     proto_name: str,
-                     est_name: str,
-                     test: str,
-                     **kwargs):
+def qn_state_analyze(
+    n: int,
+    proto_name: str,
+    est_name: str,
+    test: str,
+    **kwargs
+):
 
     proto_name = proto_name.lower()
     est_name = est_name.lower()
@@ -15,11 +17,11 @@ def qn_state_analyze(n: int,
 
     if est_name == "ppi":
         from methods.est_ppi import est_ppi
-        est_fun = est_ppi
+        est_fun = est_ppi()
         est_mtype = "povm"
     elif est_name == "frml":
         from methods.est_frml import est_frml
-        est_fun = est_frml
+        est_fun = est_frml()
         est_mtype = "povm"
     elif est_name == "arml":
         from methods.est_arml import est_arml
