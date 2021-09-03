@@ -95,12 +95,12 @@ Example: Suppressing arguments
             return {'povm': ..., 'nshots': ...}
         return handler
 
--------------------------------------
-Example: Using ``helpers.static_proto``
--------------------------------------
+---------------------------------------------
+Example: Using ``pyqtb.helpers.static_proto``
+---------------------------------------------
 ::
 
-    from helpers.static_proto import static_proto
+    from pyqtb.helpers.static_proto import static_proto
 
     def povm_protocol_handler():
         return static_proto({
@@ -147,14 +147,14 @@ import numpy as np
 import time
 from typing import List, Union, Optional, Callable
 
-import utils.qtb_tools as tools
-import utils.qtb_stats as stats
-from qtb_tests import qtb_tests
-from utils.qtb_state import qtb_state
-from utils.qtb_result import Result
+import pyqtb.utils.tools as tools
+import pyqtb.utils.stats as stats
+from pyqtb.tests import qt_tests
+from pyqtb.utils.state import state
+from pyqtb.utils.result import Result
 
 
-def qtb_analyze(
+def analyze(
         fun_proto: Callable[[int, int, List[dict], List[Union[np.ndarray, float]], List[int]], dict],
         fun_est: Callable[[List[dict], List[Union[np.ndarray, float]], List[int]], np.ndarray],
         dim: List[int],
@@ -210,7 +210,7 @@ def qtb_analyze(
     result.set_cpu()
 
     # Prepare tests
-    test_desc = qtb_tests(dim)
+    test_desc = qt_tests(dim)
     test_codes = tests
     for tcode in test_codes:
         test = test_desc[tcode]
@@ -232,21 +232,21 @@ def qtb_analyze(
                 continue
             seed = test["seed"] + experiment["exp_num"]
             stats.set_state(seed)
-            dm = qtb_state(dim, **test["generator"])
-            state = stats.get_state()
+            dm = state(dim, **test["generator"])
+            qrng_state = stats.get_state()
             for ntot_id, ntot in enumerate(test["nsample"]):
                 if display:
                     nb = tools.uprint("Experiment {}/{}, nsamples = 1e{:.0f}".format(
                         experiment["exp_num"], test["nexp"], np.round(np.log10(ntot))
                     ), nb)
-                stats.set_state(state)
+                stats.set_state(qrng_state)
                 data, meas, experiment["time_proto"][ntot_id], sm_flag = conduct_experiment(
                     dm, ntot, fun_proto, dim, mtype
                 )
                 tc = time.time()
                 dm_est = tools.call(fun_est, meas, data, dim)
                 experiment["time_est"][ntot_id] = time.time()-tc
-                f, msg = tools.isdm(dm_est)
+                f, msg = tools.is_dm(dm_est)
                 if not f:
                     raise ValueError("Estimator error: {}".format(msg))
                 experiment["nmeas"][ntot_id] = len(meas)
@@ -278,7 +278,7 @@ def conduct_experiment(dm, ntot, fun_proto, dim, mtype="povm"):
         if jn + meas_curr["nshots"] > ntot:
             raise ValueError("Number of measurements exceeds available sample size")
 
-        sm_flag = sm_flag and np.all(tools.isprod(meas_curr[mtype], dim))
+        sm_flag = sm_flag and np.all(tools.is_product(meas_curr[mtype], dim))
 
         data.append(get_data(dm, meas_curr, mtype))
         meas.append(meas_curr)

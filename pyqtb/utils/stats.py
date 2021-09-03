@@ -28,18 +28,18 @@ def randn(sz=None):
 def binornd(n, p, sz=None):
     n = int(n)
     sz = (n,) if sz is None else (n,)+sz
-    return np.sum(rand(sz)<p, axis=0)
+    return np.sum(rand(sz) < p, axis=0)
 
 
 def mnrnd(n, p):
     n = int(n)
-    edges = np.insert(np.cumsum(p/np.sum(p)), 0, 0)
+    edges = np.insert(np.cumsum(p / np.sum(p)), 0, 0)
     return np.histogram(rand((n,)), bins=edges)[0]
 
 
 def mvnrnd(mu, sigma):
-    T = chol(sigma+1e-8) 
-    return T.T.dot(randn((len(mu),))) + mu
+    t = chol(sigma+1e-8)
+    return t.T @ randn((len(mu),)) + mu
 
 
 def randi(m, sz=None):
@@ -52,39 +52,38 @@ def randi(m, sz=None):
 def sample(p, n):
     if n > 1e4:  # normal approximation for performance
         mu = p*n
-        sigma = (-np.outer(p, p)+np.diag(p))*n
-        k = np.round(mvnrnd(mu,sigma))
-        k[np.where(k<0)[0]] = 0
+        sigma = (-np.outer(p, p) + np.diag(p)) * n
+        k = np.round(mvnrnd(mu, sigma))
+        k[np.where(k < 0)[0]] = 0
         if sum(k) > n:
-            k[np.argmax(k)] -= sum(k)-n
+            k[np.argmax(k)] -= sum(k) - n
         else:
             k[-1] = n-sum(k[:-1])
     else:
         if len(p) == 2:
             k = np.empty((2,))
             k[0] = binornd(n, p[0])
-            k[1] = n-k[0]
+            k[1] = n - k[0]
         else:
             k = mnrnd(n, p)
     return k
 
 
-class QRNG():
-
+class QRNG:
     rng = np.random.RandomState()
 
-    @staticmethod
-    def seed(n):
-        QRNG.rng.seed(n)
+    @classmethod
+    def seed(cls, n):
+        cls.rng.seed(n)
 
-    @staticmethod
-    def rand(sz=()):
-        return QRNG.rng.rand(*sz)
+    @classmethod
+    def rand(cls, sz=()):
+        return cls.rng.rand(*sz)
 
-    @staticmethod
-    def get_state():
-        return QRNG.rng.get_state()
+    @classmethod
+    def get_state(cls):
+        return cls.rng.get_state()
 
-    @staticmethod
-    def set_state(state):
-        QRNG.rng.set_state(state)
+    @classmethod
+    def set_state(cls, state):
+        cls.rng.set_state(state)

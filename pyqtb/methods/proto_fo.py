@@ -1,6 +1,6 @@
 import numpy as np
-import utils.qtb_tools as qtb_tools
-import utils.qtb_stats as qtb_stats
+import pyqtb.utils.tools as qtb_tools
+import pyqtb.utils.stats as qtb_stats
 from scipy.optimize import minimize
 
 

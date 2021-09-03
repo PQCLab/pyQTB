@@ -1,9 +1,9 @@
 import numpy as np
 from inspect import signature
-from .qtb_stats import randn
+from pyqtb.utils.stats import randn
 
 
-def isdm(dm, tol=1e-8):
+def is_dm(dm, tol=1e-8):
     if np.linalg.norm(dm-dm.conj().T) > tol:
         return False, "Density matrix should be Hermitian"
     
@@ -16,9 +16,9 @@ def isdm(dm, tol=1e-8):
     return True, ""
 
 
-def isprod(A: np.array, dim):
+def is_product(A: np.array, dim):
     if len(A.shape) == 3:
-        f = [ isprod(A[j, :, :], dim) for j in range(A.shape[0]) ]
+        f = [is_product(A[j, :, :], dim) for j in range(A.shape[0])]
     else:
         md = len(dim)
         if md == 1:

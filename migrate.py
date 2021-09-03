@@ -2,7 +2,7 @@ import argparse
 import glob
 import scipy.io
 import os.path
-from utils.qtb_result import Result
+from pyqtb.utils.result import Result
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

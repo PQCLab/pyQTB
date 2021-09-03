@@ -1,6 +1,6 @@
 import sys
 import os
-from utils.qtb_result import Result
+from pyqtb.utils.result import Result
 
 if __name__ == "__main__":
     name = sys.argv[1]

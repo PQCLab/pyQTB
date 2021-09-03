@@ -1,4 +1,4 @@
-from utils.qtb_tools import call
+from pyqtb.utils.tools import call
 
 
 def iterative_proto(fun_measset, *args):

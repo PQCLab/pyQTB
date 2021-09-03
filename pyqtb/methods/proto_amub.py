@@ -1,12 +1,12 @@
 import numpy as np
-import utils.qtb_tools as qtb_tools
-from utils.qtb_proto import qtb_proto
-from helpers.iterative_proto import iterative_proto
+import pyqtb.utils.tools as qtb_tools
+from pyqtb.utils import protocols
+from pyqtb.helpers.iterative_proto import iterative_proto
 from copy import deepcopy
 
 
 def proto_amub(d, fun_est):
-    proto = qtb_proto("mub" + str(d))
+    proto = protocols("mub" + str(d))
     base_elems = proto["elems"]
     vh = proto["vectors"][0].conj().T
     return iterative_proto(get_measset, base_elems, vh, fun_est)

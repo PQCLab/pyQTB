@@ -1,9 +1,9 @@
 import numpy as np
-import utils.qtb_tools as qtb_tools
-import utils.qtb_stats as qtb_stats
-from utils.qtb_proto import qtb_proto
+import pyqtb.utils.tools as qtb_tools
+import pyqtb.utils.stats as qtb_stats
+from pyqtb.utils import protocols
 from .proto_fo import get_suborth
-from helpers.iterative_proto import iterative_proto
+from pyqtb.helpers.iterative_proto import iterative_proto
 from copy import deepcopy
 
 
@@ -11,7 +11,7 @@ def proto_fomub(dim, fun_est):
     base_elems = []
     vh = []
     for d in dim:
-        proto = qtb_proto("mub" + str(d))
+        proto = protocols("mub" + str(d))
         base_elems.append(proto["elems"])
         vh.append(proto["vectors"][0].conj().T)
     return iterative_proto(get_measset, base_elems, vh, fun_est)

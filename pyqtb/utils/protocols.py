@@ -1,5 +1,5 @@
 import numpy as np
-from .qtb_tools import vec2povm, listkronpower
+from pyqtb.utils.tools import vec2povm, listkronpower
 import pickle
 import os
 

@@ -1,8 +1,9 @@
 import numpy as np
-from .qtb_stats import randn, rand
-from .qtb_tools import randunitary, complete_basis
+from pyqtb.utils.stats import randn, rand
+from pyqtb.utils.tools import randunitary, complete_basis
 
-def qtb_state(dim, stype, rank=np.nan, init_err=[], depol=[]):
+
+def state(dim, stype, rank=np.nan, init_err=[], depol=[]):
     Dim = np.prod(dim)
     if np.isnan(rank):
         rank = Dim
@@ -11,7 +12,7 @@ def qtb_state(dim, stype, rank=np.nan, init_err=[], depol=[]):
         x = randn((Dim,))+1j*randn((Dim,))
         return x/np.linalg.norm(x)
     elif stype == "haar_dm":
-        psi = qtb_state(Dim*rank, "haar_vec")
+        psi = state(Dim * rank, "haar_vec")
         psi = np.reshape(psi, (Dim,rank), order="F")
         u,w,_ = np.linalg.svd(psi, full_matrices=False)
         w = w**2
@@ -39,6 +40,7 @@ def qtb_state(dim, stype, rank=np.nan, init_err=[], depol=[]):
         w = (1-p)*w + p/Dim
     
     return (u*w).dot(u.conj().T)
+
 
 def param_generator(ptype, x1, x2=1, lims=[np.nan,np.nan]):
     if ptype == "fixed":

@@ -1,5 +1,5 @@
 import numpy as np
-from qtb_analyze import qtb_analyze
+from pyqtb.analyze import analyze
 
 
 def qn_state_analyze(
@@ -16,34 +16,34 @@ def qn_state_analyze(
     dim = [2] * n
 
     if est_name == "ppi":
-        from methods.est_ppi import est_ppi
+        from pyqtb.methods.est_ppi import est_ppi
         est_fun = est_ppi()
         est_mtype = "povm"
     elif est_name == "frml":
-        from methods.est_frml import est_frml
+        from pyqtb.methods.est_frml import est_frml
         est_fun = est_frml()
         est_mtype = "povm"
     elif est_name == "arml":
-        from methods.est_arml import est_arml
+        from pyqtb.methods.est_arml import est_arml
         est_fun = est_arml()
         est_mtype = "povm"
     else:
         raise ValueError("Unknown estimator name")
 
     if proto_name == "fmub":
-        from methods.proto_fmub import proto_fmub
+        from pyqtb.methods.proto_fmub import proto_fmub
         proto_fun = proto_fmub(dim)
         proto_mtype = "povm"
     elif proto_name == "amub":
-        from methods.proto_amub import proto_amub
+        from pyqtb.methods.proto_amub import proto_amub
         proto_fun = proto_amub(np.prod(dim), est_fun)
         proto_mtype = "povm"
     elif proto_name == "fo":
-        from methods.proto_fo import proto_fo
+        from pyqtb.methods.proto_fo import proto_fo
         proto_fun = proto_fo(est_fun)
         proto_mtype = "povm"
     elif proto_name == "fomub":
-        from methods.proto_fomub import proto_fomub
+        from pyqtb.methods.proto_fomub import proto_fomub
         proto_fun = proto_fomub(dim, est_fun)
         proto_mtype = "povm"
     else:
@@ -61,4 +61,4 @@ def qn_state_analyze(
     if "name" not in kwargs:
         kwargs.update({"name": proto_name.upper() + "-" + est_name.upper()})
 
-    qtb_analyze(proto_fun, est_fun, dim, test, mtype=proto_mtype, **kwargs)
+    analyze(proto_fun, est_fun, dim, test, mtype=proto_mtype, **kwargs)

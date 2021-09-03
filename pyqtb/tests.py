@@ -1,6 +1,7 @@
 import numpy as np
 
-def qtb_tests(dim):
+
+def qt_tests(dim):
     nsub = len(dim)
     Dim = int(np.prod(dim))
     return {
