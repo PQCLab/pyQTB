@@ -1,10 +1,14 @@
 import numpy as np
 from pyqtb.utils.stats import randn, rand
-from pyqtb.utils.tools import randunitary, complete_basis
+from pyqtb.utils.tools import rand_unitary, complement_basis
 
 
-def state(dim, stype, rank=np.nan, init_err=[], depol=[]):
-    Dim = np.prod(dim)
+def state(dim, stype, rank=np.nan, init_err=None, depol=None):
+    if depol is None:
+        depol = []
+    if init_err is None:
+        init_err = []
+    Dim = int(np.prod(dim))
     if np.isnan(rank):
         rank = Dim
     
@@ -18,7 +22,7 @@ def state(dim, stype, rank=np.nan, init_err=[], depol=[]):
         w = w**2
     elif stype == "bures_dm":
         G = randn((Dim,Dim)) + 1j*randn((Dim,Dim))
-        U = randunitary(Dim)
+        U = rand_unitary(Dim)
         A = (np.eye(Dim)+U).dot(G)
         u,w,_ = np.linalg.svd(A, full_matrices=False)
         w = w**2
@@ -26,7 +30,7 @@ def state(dim, stype, rank=np.nan, init_err=[], depol=[]):
     else:
         raise ValueError("Unknown state type: {}".format(stype))
     
-    u = complete_basis(u)
+    u = complement_basis(u)
     if len(w) < Dim: w = np.pad(w, (0,Dim-len(w)), "constant")
     
     if init_err:
@@ -42,7 +46,9 @@ def state(dim, stype, rank=np.nan, init_err=[], depol=[]):
     return (u*w).dot(u.conj().T)
 
 
-def param_generator(ptype, x1, x2=1, lims=[np.nan,np.nan]):
+def param_generator(ptype, x1, x2=1, lims=None):
+    if lims is None:
+        lims = [np.nan, np.nan]
     if ptype == "fixed":
         p = x1
     elif ptype == "unirnd":

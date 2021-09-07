@@ -1,7 +1,7 @@
 import numpy as np
 import pyqtb.utils.tools as qtb_tools
 from pyqtb.utils import protocols
-from pyqtb.helpers.iterative_proto import iterative_proto
+from pyqtb.utils.helpers import iterative_proto
 from copy import deepcopy
 
 

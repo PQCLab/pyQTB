@@ -3,7 +3,7 @@ import pyqtb.utils.tools as qtb_tools
 import pyqtb.utils.stats as qtb_stats
 from pyqtb.utils import protocols
 from .proto_fo import get_suborth
-from pyqtb.helpers.iterative_proto import iterative_proto
+from ..utils.helpers import iterative_proto
 from copy import deepcopy
 
 

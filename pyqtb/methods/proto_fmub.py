@@ -1,12 +1,7 @@
-from pyqtb.utils import protocols
-from pyqtb.utils import listkron
-from pyqtb.helpers.static_proto import static_proto
+from typing import List, Callable
+from pyqtb.utils.protocols import factorized_mub
+from pyqtb.utils.helpers import static_proto
 
 
-def proto_fmub(dim):
-    elems = []
-    for d in dim:
-        proto = protocols("mub" + str(d))
-        elems = listkron(elems, proto["elems"]) if elems else proto["elems"]
-    proto["elems"] = elems
-    return static_proto(proto)
+def proto_fmub(dim: List[int]) -> Callable:
+    return static_proto(factorized_mub(dim))

@@ -19,7 +19,9 @@ def est_frml():
     :return: Estimator handler
     """
     def handler(meas, data, dim) -> np.ndarray:
-        proto = [m["povm"] for m in meas]
+        proto = [
+            np.concatenate(tuple([np.expand_dims(operator, axis=0) for operator in m.elem]), axis=0) for m in meas
+        ]
         e = Experiment(int(np.prod(dim)), State, "polynomial").set_data(
             proto=proto,
             clicks=data,

@@ -95,12 +95,12 @@ Example: Suppressing arguments
             return {'povm': ..., 'nshots': ...}
         return handler
 
----------------------------------------------
-Example: Using ``pyqtb.helpers.static_proto``
----------------------------------------------
+---------------------------------------------------
+Example: Using ``pyqtb.utils.helpers.static_proto``
+---------------------------------------------------
 ::
 
-    from pyqtb.helpers.static_proto import static_proto
+    from pyqtb.utils.helpers import static_proto
 
     def povm_protocol_handler():
         return static_proto({
@@ -147,26 +147,24 @@ import numpy as np
 import time
 from typing import List, Union, Optional, Callable
 
+from pyqtb import Test, Measurement, Result
+
 import pyqtb.utils.tools as tools
 import pyqtb.utils.stats as stats
-from pyqtb.tests import qt_tests
-from pyqtb.utils.state import state
-from pyqtb.utils.result import Result
 
 
 def analyze(
-        fun_proto: Callable[[int, int, List[dict], List[Union[np.ndarray, float]], List[int]], dict],
-        fun_est: Callable[[List[dict], List[Union[np.ndarray, float]], List[int]], np.ndarray],
-        dim: List[int],
-        tests: List[str],
-        mtype: str = "povm",
-        name: str = "Untitled QT-method",
-        max_nsample: float = np.inf,
-        display: bool = True,
-        filename: Optional[str] = None,
-        savefreq: int = 1,
-        par_job_id: Optional[int] = None,
-        par_job_num: Optional[int] = None
+    dim: List[int],
+    fun_proto: Callable[[int, int, List[dict], List[Union[np.ndarray, float]], List[int]], Measurement],
+    fun_est: Callable[[List[dict], List[Union[np.ndarray, float]], List[int]], np.ndarray],
+    test: Test,
+    name: str = "Untitled QT-method",
+    max_nsample: float = np.inf,
+    display: bool = True,
+    filename: Optional[str] = None,
+    savefreq: int = 1,
+    par_job_id: Optional[int] = None,
+    par_job_num: Optional[int] = None
 ) -> Result:
     """Runs tests to analyze the QT method.
 
@@ -180,16 +178,15 @@ def analyze(
     in case of interruption.
 
     The function supports parallel mode. In this mode all experiments are divided into ``par_job_num`` batches and
-    the batch ``par_job_id`` is processed. When all jobs are finished, user must run ``python par_finish.py filename``.
-    This command combines the results over all jobs and removes the temporal directory. Note that the parallel mode
-    requires specifying the ``filename`` argument.
+    the batch ``par_job_id`` is processed. When all jobs are finished, user must run
+    ``python -m pyqtb.par_finish filename``.
+    This command combines the results over all jobs and removes the temporal directory.
+    Note that the parallel mode requires specifying the ``filename`` argument.
 
-
+    :param dim: Subsystems dimensions
     :param fun_proto: Measurement protocol handler
     :param fun_est: Estimator handler
-    :param dim: Subsystems dimensions
-    :param tests: List of test codes to be performed (see qtb_tests for available test codes)
-    :param mtype: Type of the measurements performed by the QT method (default: 'POVM'), optional
+    :param test: The test to be performed: test code (see pyqtb.tests for available test codes) or a pyqtb.tests.Test object
     :param name: QT method name that would be displayed in reports, optional
     :param max_nsample: Maximum sample size that the method could handle (infinite by default), optional
     :param display: Display analysis status in the command window (default: True), optional
@@ -202,123 +199,57 @@ def analyze(
     if display:
         print("Initialization...")
 
-    result = Result(filename, dim, display)
+    result = Result(dim=dim, filename=filename, verbose=display)
     if par_job_id is not None and par_job_num is not None:
         result.par_init(par_job_id, par_job_num)
-    result.load()
     result.set_name(name)
     result.set_cpu()
 
     # Prepare tests
-    test_desc = qt_tests(dim)
-    test_codes = tests
-    for tcode in test_codes:
-        test = test_desc[tcode]
-        test["nsample"] = list(filter(lambda ntot: ntot <= max_nsample, test["nsample"]))
-        result.init_test(tcode, test)
-    result.save()
+    if not np.isinf(max_nsample):
+        test._replace(nsample=list(filter(lambda ntot: ntot <= max_nsample, test.nsample)))
+    result.init_test(test)
+    result.load()
 
     # Perform tests
     nb = 0
-    for j_test, tcode in enumerate(test_codes):
-        test = result.tests[tcode]
+    if display:
+        print(f"===> Running test {test.name} ({test.code})")
+        nb = tools.uprint("")
 
-        if display:
-            print("===> Running test {}/{}: {} ({})".format(j_test+1, len(test_codes), test["name"], test["code"]))
-            nb = tools.uprint("")
+    for idx, experiment in enumerate(result.experiments):
+        if not np.isnan(experiment.fidelity[0]):  # experiment results loaded
+            continue
+        seed = test.seed + experiment.number
+        stats.set_state(seed)
+        dm = tools.call(test.fun_state, dim)
+        qrng_state = stats.get_state()
+        for ntot_id, ntot in enumerate(test.nsample):
+            if display:
+                nb = tools.uprint("Experiment {}/{}, num samples = 1e{:.0f}".format(
+                    experiment.number, test.nexp, np.round(np.log10(ntot))
+                ), nb)
+            stats.set_state(qrng_state)
 
-        for exp_id, experiment in enumerate(result.experiments(tcode)):
-            if not np.isnan(experiment["fidelity"][0]):  # experiment results loaded
-                continue
-            seed = test["seed"] + experiment["exp_num"]
-            stats.set_state(seed)
-            dm = state(dim, **test["generator"])
-            qrng_state = stats.get_state()
-            for ntot_id, ntot in enumerate(test["nsample"]):
-                if display:
-                    nb = tools.uprint("Experiment {}/{}, nsamples = 1e{:.0f}".format(
-                        experiment["exp_num"], test["nexp"], np.round(np.log10(ntot))
-                    ), nb)
-                stats.set_state(qrng_state)
-                data, meas, experiment["time_proto"][ntot_id], sm_flag = conduct_experiment(
-                    dm, ntot, fun_proto, dim, mtype
-                )
-                tc = time.time()
-                dm_est = tools.call(fun_est, meas, data, dim)
-                experiment["time_est"][ntot_id] = time.time()-tc
-                f, msg = tools.is_dm(dm_est)
-                if not f:
-                    raise ValueError("Estimator error: {}".format(msg))
-                experiment["nmeas"][ntot_id] = len(meas)
-                experiment["fidelity"][ntot_id] = tools.fidelity(dm, dm_est)
-                experiment["sm_flag"] = experiment["sm_flag"] and sm_flag
+            data, meas, experiment.time_proto[ntot_id], sm_flag = tools.simulate_experiment(
+                dm, ntot, fun_proto, test.fun_meas, dim
+            )
 
-            result.update(tcode, exp_id, experiment)
-            if (exp_id+1) % savefreq == 0 or experiment["is_last"]:
-                result.save()
+            tc = time.time()
+            dm_est = tools.call(fun_est, meas, data, dim)
+            experiment.time_est[ntot_id] = time.time() - tc
 
-        if display:
-            tools.uprint("Done", nb, end="\n")
+            f, msg = tools.is_dm(dm_est)
+            assert f, f"QTB Error: Estimation failed with error '{msg}'"
+
+            experiment.nmeas[ntot_id] = len(meas)
+            experiment.fidelity[ntot_id] = tools.fidelity(dm, dm_est)
+            experiment.sm_flag = experiment.sm_flag and sm_flag
+
+        if (idx + 1) % savefreq == 0 or experiment == result.experiments[-1]:
+            result.save()
+
+    if display:
+        tools.uprint("Done", nb, end="\n")
 
     return result
-
-
-def conduct_experiment(dm, ntot, fun_proto, dim, mtype="povm"):
-    data, meas = [], []
-    time_proto, sm_flag = 0, True
-    jn = 0
-    while jn < ntot:
-        tc = time.time()
-        meas_curr = tools.call(fun_proto, jn, ntot, meas, data, dim)
-        time_proto += time.time() - tc
-
-        if "nshots" not in meas_curr:
-            meas_curr["nshots"] = 1
-
-        if jn + meas_curr["nshots"] > ntot:
-            raise ValueError("Number of measurements exceeds available sample size")
-
-        sm_flag = sm_flag and np.all(tools.is_product(meas_curr[mtype], dim))
-
-        data.append(get_data(dm, meas_curr, mtype))
-        meas.append(meas_curr)
-
-        jn += meas_curr["nshots"]
-
-    return data, meas, time_proto, sm_flag
-
-
-def get_data(dm, meas_curr, mtype="povm"):
-    tol = 1e-8
-
-    if mtype == "povm":
-        probabilities = np.real(
-            np.array([operator.flatten() for operator in meas_curr["povm"]]) @ np.reshape(dm, (-1,), order="F")
-        )
-
-        if np.any(probabilities < 0):
-            if np.any(probabilities < -tol):
-                raise ValueError("Measurement operators are not valid: negative probabilities exist")
-            probabilities[probabilities < 0] = 0
-
-        total = np.sum(probabilities)
-        if abs(1 - total) > tol:
-            raise ValueError("Measurement operators are not valid: total probability is not equal to 1")
-
-        return stats.sample(probabilities / total, meas_curr["nshots"])
-
-    elif mtype == "operator":
-        meas_curr["povm"] = [
-            meas_curr["operator"],
-            np.eye(meas_curr["operator"].shape[0], dtype=complex) - meas_curr["operator"]
-        ]
-        return get_data(dm, meas_curr, mtype="povm")[0]
-
-    elif mtype == "observable":
-        w, v = np.linalg.eig(meas_curr["observable"])
-        meas_curr["povm"] = [np.outer(v[:, j], v[:, j].conj()) for j in range(v.shape[1])]
-        clicks = get_data(dm, meas_curr, mtype="povm")
-        return np.sum(clicks * w) / meas_curr["nshots"]
-
-    else:
-        raise ValueError("Unknown measurement type")
