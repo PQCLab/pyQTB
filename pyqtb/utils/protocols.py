@@ -1,9 +1,9 @@
 import numpy as np
+import dill as pickle
+import os
+
 from typing import List
 from itertools import product
-
-import pickle
-import os
 
 
 def pauli(num_subsystems: int = 1) -> dict:
@@ -26,7 +26,7 @@ def mub(dim: int) -> dict:
         return {
             "mtype": "povm",
             "bases": bases,
-            "elems": [basis2povm(u) for u in bases]
+            "maps": [basis2povm(u) for u in bases]
         }
 
 
@@ -38,7 +38,7 @@ def factorized_mub(dim: List[int]) -> dict:
     return {
         "mtype": "povm",
         "bases": bases,
-        "elems": [basis2povm(u) for u in bases]
+        "maps": [basis2povm(u) for u in bases]
     }
 
 

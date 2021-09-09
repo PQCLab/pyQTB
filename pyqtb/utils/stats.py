@@ -33,7 +33,7 @@ def binornd(n, p, sz=None):
 
 def mnrnd(n, p):
     n = int(n)
-    edges = np.insert(np.cumsum(p / np.sum(p)), 0, 0)
+    edges = np.insert(np.cumsum(np.array(p) / np.sum(p)), 0, 0)
     return np.histogram(rand((n,)), bins=edges)[0]
 
 

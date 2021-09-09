@@ -2,18 +2,17 @@ import numpy as np
 import time
 
 from typing import Callable, List, Union, Any, Tuple
-from inspect import signature
 
-from pyqtb import Measurement
+from pyqtb import Dimension, Measurement
 from pyqtb.utils.stats import randn
 
 
 def simulate_experiment(
     dm: np.ndarray,
     ntot: int,
-    fun_proto: Callable[[int, int, List[dict], List[Union[np.ndarray, float]], List[int]], Measurement],
+    fun_proto: Callable[[int, int, List[Measurement], List[Any], Dimension], Measurement],
     fun_meas: Callable[[np.ndarray, Measurement], Any],
-    dim: List[int]
+    dim: Dimension
 ) -> Tuple[List[Any], List[Measurement], float, bool]:
 
     data, meas = [], []
@@ -21,33 +20,26 @@ def simulate_experiment(
     jn = 0
     while jn < ntot:
         tc = time.time()
-        meas_curr = call(fun_proto, jn, ntot, meas, data, dim)
+        meas_curr = fun_proto(jn, ntot, meas, data, dim)
         time_proto += time.time() - tc
 
         assert jn + meas_curr.nshots <= ntot, "QTB Error: Number of measurements exceeds available sample size"
 
-        sm_flag = sm_flag and is_product(meas_curr.elem, dim)
-        data.append(call(fun_meas, dm, meas_curr))
+        sm_flag = sm_flag and is_product(meas_curr.map, dim)
+        data.append(fun_meas(dm, meas_curr))
         meas.append(meas_curr)
         jn += meas_curr.nshots
 
     return data, meas, time_proto, sm_flag
 
 
-def is_dm(dm, tol: float = 1e-8) -> Tuple[bool, str]:
-    if np.linalg.norm(dm-dm.conj().T) > tol:
-        return False, "Density matrix should be Hermitian"
-    
-    if np.sum(np.linalg.eigvals(dm)<-tol) > 0:
-        return False, "Density matrix shold be non-negative"
-    
-    if np.abs(np.trace(dm)-1) > tol:
-        return False, "Density matrix should have a unit trace"
-    
-    return True, ""
+def check_dm(dm, tol: float = 1e-8) -> None:
+    assert np.linalg.norm(dm - dm.conj().T) < tol, "QTB Error: Density matrix should be Hermitian"
+    assert np.sum(np.linalg.eigvals(dm) < -tol) == 0, "QTB Error: Density matrix should be non-negative"
+    assert np.abs(np.trace(dm) - 1) < tol, "QTB Error: Density matrix should have a unit trace"
 
 
-def is_product(a: Union[np.ndarray, List[np.ndarray]], dim: List[int]) -> bool:
+def is_product(a: Union[np.ndarray, List[np.ndarray]], dim: Dimension) -> bool:
     if type(a) is list:
         return all([is_product(aj, dim) for aj in a])
 
@@ -68,27 +60,16 @@ def is_product(a: Union[np.ndarray, List[np.ndarray]], dim: List[int]) -> bool:
     return f
 
 
-def uprint(text: str, nb: int = 0, end: str = "") -> int:
-    text_spaces = text + (" " * max(0, nb - len(text)))
-    print("\r" + text_spaces, end=end, flush=True)
-    return len(text_spaces)
-
-
 def fidelity(a: np.ndarray, b: np.ndarray) -> float:
-    a = a/np.trace(a)
-    b = b/np.trace(b)
+    a = a / np.trace(a)
+    b = b / np.trace(b)
     v, w, _ = np.linalg.svd(a)
-    sqa = v.dot(np.diag(np.sqrt(w))).dot(v.conj().T)
-    A = sqa.dot(b).dot(sqa)
-    f = np.real(np.sum(np.sqrt(np.linalg.eigvals(A)))**2)
+    sqa = v @ np.diag(np.sqrt(w)) @ v.conj().T
+    bab = sqa.dot(b).dot(sqa)
+    f = np.real(np.sum(np.sqrt(np.linalg.eigvals(bab)))**2)
     if f > 1:  # fix computation inaccuracy
         f = 2-f
     return f
-
-
-def call(fun: Callable, *args) -> Any:
-    n = len(signature(fun).parameters)
-    return fun(*args[0:n])
 
 
 def principal(H, K=1):

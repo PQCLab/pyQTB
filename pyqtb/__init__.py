@@ -1,65 +1,303 @@
+"""The module contains main data types of the package"""
 import os
-from threading import Thread
-from typing import NamedTuple, List, Callable, Any, Optional, Dict
-from types import FunctionType, SimpleNamespace
-
-import dill as pickle
 import numpy as np
-import inspect
-import re
+import dill as pickle
 
+from typing import NamedTuple, List, Callable, Any, Optional, Dict
+from abc import ABC
+
+from threading import Thread
+from types import SimpleNamespace
 from cpuinfo import get_cpu_info
 
 
+class Dimension:
+    """System dimension
+
+    The class instance specifies the partition of the Hilbert space. Examples:
+
+    * ``Dimension([2])`` -- single qubit system
+    * ``Dimension([2,2,2])`` -- three qubits system
+    * ``Dimension([2,3])`` -- qubit + qutrit system
+    """
+    def __init__(self, spec: List[int]):
+        self._spec = spec
+
+    @property
+    def list(self) -> List[int]:
+        """List of subsystems dimensions"""
+        return self._spec
+
+    @property
+    def full(self) -> int:
+        """Total system dimension"""
+        return int(np.prod(self.list))
+
+    def __len__(self) -> int:
+        """Returns the number of subsystems"""
+        return len(self._spec)
+
+    def __getitem__(self, item: int) -> int:
+        """Returns the dimension of subsystem by its index"""
+        return self.list[item]
+
+
 class Measurement(NamedTuple):
-    mtype: str
+    """Measurement specification
+
+    Attributes:
+        nshots  Integer sample size
+        map     An object that can map a density matrix into the measurement result (e.g. list of POVM operators)
+        extras  Extra measurement information that could be accessed within QT method handlers (default: None), optional
+    """
     nshots: int
-    elem: Any
+    map: Any
+    extras: Any = None
+
+
+class Handler(ABC):
+    """Abstract class for function handlers data types
+
+    Attributes:
+        fun Function handler
+    """
+    def __init__(self, fun: Callable):
+        self._fun = fun
+
+    def __call__(self, *args, **kwargs):
+        return self._fun(*args, **kwargs)
+
+
+class ProtocolHandler(Handler):
+    """Measurement protocol handler data type
+
+    Handlers of types ProtocolHandler and EstimatorHandler together specify the QT method.
+    Consider the function ``fun`` to be the protocol handler.
+    It takes the information from all the previous measurements and returns the next measurement to perform.
+
+    ``m = fun(jn, ntot, meas, data, dim)``
+
+    Function arguments:
+        * ``jn: int``                     Number of samples being measured so far,
+        * ``ntot: int``                   Total sample size,
+        * ``meas: List[Measurement]``     List of previous measurements,
+        * ``data: List[Any]``             List of previous measurement results,
+        * ``dim: Dimension``              System dimension
+
+    Function returns:
+        * ``m: Measurement``              Measurement to perform next
+
+    **Example**
+    ::
+
+        from pyqtb import Measurement, ProtocolHandler
+        def protocol_handler():
+            def handler(jn, ntot, data, meas, dim):
+                # process inputs
+                return Measurement(nshots=100, map=...)
+            return ProtocolHandler(handler)
+
+
+    **Example: Storing additional fields**
+    ::
+
+        from pyqtb import Measurement, ProtocolHandler
+        def protocol_handler():
+            def handler(jn, ntot, data, meas, dim):
+                # process inputs
+                very_important_list = ['it was hard to calculate', 'so i better store it']
+                # the ``very_important_list`` will be available in ``meas[-1]`` in the next handler access
+                return Measurement(nshots=100, map=..., extras=very_important_list)
+            return ProtocolHandler(handler)
+
+
+    **Example: Using static_proto helper**
+    ::
+
+        from pyqtb.utils.helpers import static_proto
+        def povm_protocol_handler():
+            return static_proto({
+                'mtype': 'povm',  # POVM measurement type
+                'maps': [[...], [...], ...],  # list of POVM operators sets
+            })
+    """
+    def __init__(self, fun: Callable[[int, int, List[Measurement], List[Any], Dimension], Measurement]):
+        super().__init__(fun)
+
+
+class EstimatorHandler(Handler):
+    """Estimator handler data type
+
+    Handlers of types ProtocolHandler and EstimatorHandler together specify the QT method.
+    Consider the function ``fun`` to be the estimator handler.
+    It takes the information from all measurements and returns the estimated density matrix.
+
+    ``dm = fun(meas, data, dim)``
+
+    Function arguments:
+        * ``meas: List[Measurement]``     List of all measurements,
+        * ``data: List[Any]``             List of all measurement results,
+        * ``dim: Dimension``              System dimension
+
+    Function returns:
+        * ``dm: np.ndarray``              Density matrix
+
+    **Example**
+    ::
+
+        from pyqtb import EstimatorHandler
+        def estimator_handler():
+            def handler(data, meas, dim):
+                # process inputs
+                return dm
+            return EstimatorHandler(handler)
+    """
+    def __init__(self, fun: Callable[[List[Measurement], List[Any], Dimension], np.ndarray]):
+        super().__init__(fun)
+
+
+class StateGeneratorHandler(Handler):
+    """State generator handler data type
+
+    The handler determines the class of quantum states that are covered by a specific test.
+    Consider the function ``fun`` to be the state generator handler.
+    It takes the system dimension as the input and returns a random density matrix.
+    **Note** that, in order to tests to be fully reproducible, ``fun`` should use RNG from ``pyqtb.utils.stats``.
+
+    ``dm = fun(dim)``
+
+    Function arguments:
+        * ``dim: Dimension``    System dimension
+
+    Function returns:
+        * ``dm: np.ndarray``    Density matrix
+
+    **Example: random |0><0| and |1><1| mixture**
+    ::
+
+        import numpy as np
+        from pyqtb import StateGeneratorHandler
+        from pyqtb.utils.stats import rand
+        def state_handler():
+            def handler(dim):
+                e = rand()
+                return np.diag([1 - e, e] + [0] * (dim.full - 2))
+            return StateGeneratorHandler(handler)
+    """
+    def __init__(self, fun: Callable[[Dimension], np.ndarray]):
+        super().__init__(fun)
+
+
+class DataSimulatorHandler(Handler):
+    """Measurement data simulator handler data type
+
+    The handler determines the way the data is simulated within a specific test.
+    Consider the function ``fun`` to be the data simulator handler.
+    It takes the density matrix and the measurement specification as the input and returns a random data.
+    **Note** that, in order to tests to be fully reproducible, ``fun`` should use RNG from ``pyqtb.utils.stats``.
+
+    ``data = fun(dm, m)``
+
+    Function arguments:
+        * ``dm: np.ndarray``    Density matrix
+        * ``m: Measurement``    Measurement specification
+
+    Function returns:
+        * ``data: Any``         Measurement results data
+
+    **Example: POVM measurements data simulator**
+    ::
+
+        import numpy as np
+        from pyqtb import DataSimulatorHandler
+        from pyqtb.utils.stats import mnrnd
+        def povm_data_handler():
+            def handler(dm, m):
+                probabilities = [np.trace(dm @ p) for p in m.map]
+                return mnrnd(probabilities, m.nshots)
+            return DataSimulatorHandler(handler)
+    """
+    def __init__(self, fun: Callable[[np.ndarray, Measurement], Any]):
+        super().__init__(fun)
 
 
 class Test(NamedTuple):
-    dim: List[int]
-    fun_state: Callable[[List[int]], np.ndarray]
-    fun_meas: Callable[[np.ndarray, Measurement], Any]
+    """Test specification
+
+    Attributes:
+        dim         System dimension
+        fun_state   Function handler that generates a random state density matrix for a specific dimension
+        fun_meas    Function handler that generates a measurement result for a specific density matrix and measurement
+        nsample     List of total sample sizes
+        nexp        Number of experiments simulation
+        seed        Random number generator seed
+        rank        Maximal rank of generated states density matrices
+        name        Full test name
+        title       Short test title to display in reports
+    """
+    dim: Dimension
+    fun_state: StateGeneratorHandler
+    fun_meas: DataSimulatorHandler
     nsample: List[int]
     nexp: int
     seed: int
     rank: int
-    code: str
-    title: str
     name: str
-
-    def __str__(self):
-        str_values = []
-        for attr in ["dim", "fun_state", "fun_meas", "nsample", "nexp", "seed"]:
-            value = getattr(self, attr)
-            if isinstance(value, FunctionType):
-                str_value = re.sub(r"[\n\t\s]*", "", inspect.getsourcelines(value)[0][0])
-            else:
-                str_value = str(value)
-            str_values.append(f"{attr}={str_value}")
-        return "::".join(str_values)
+    title: str
 
 
-class Experiment(SimpleNamespace):
+class ExperimentResult(SimpleNamespace):
+    """Result of a single experiment in test
+
+    Attributes:
+        number      Experiment number among all the experiments in test
+        time_proto  List of protocol computation times (sec) for each value of sample size in test
+        time_est    List of estimator computation times (sec) for each value of sample size in test
+        nmeas       List of total measurement counts for each value of sample size in test
+        fidelity    List of fidelity values for each value of sample size in test
+        sm_flag     True if all measurements are separable for each value of sample size in test, False otherwise
+    """
     number: int
-    time_est: np.ndarray
-    time_proto: np.ndarray
-    nmeas: np.ndarray
-    fidelity: np.ndarray
+    time_proto: List[float]
+    time_est: List[float]
+    nmeas: List[int]
+    fidelity: List[float]
     sm_flag: bool
 
 
 class Result:
+    """A class to store QT method analysis results data
 
-    lib = "pyQTB"
+    Attributes:
+        lib                 Name and version of the current library
+        extension           Results filename extension
+        data_fields         List of the class instance attributes that are stored in the result file
+
+        dim                 System dimension
+        name                Name of the QT method
+        cpu                 String information about the CPU that processed the data
+        verbose             Display information in command window
+        filename            Results filename
+        test                Test specification
+        experiments_range   A range of experiments indices that are processed
+        experiments         List of experiments results
+        par_job_id          Job id in parallel mode
+        par_job_num         Total number of jobs in parallel mode
+        par_filename        Results filename in parallel mode
+    """
+    lib = "pyQTB v0.1"
     extension = ".pickle"
     data_fields = [
         "name", "dim", "cpu", "lib",
         "test", "experiments_range", "experiments"
     ]
 
-    def __init__(self, dim: Optional[List[int]] = None, filename: Optional[str] = None, verbose: bool = True):
+    def __init__(self, dim: Optional[Dimension] = None, filename: Optional[str] = None, verbose: bool = True):
+        """
+        :param dim: Dimension array, optional
+        :param filename: Results filename, optional
+        :param verbose: Display information in command window (default: True), optional
+        """
         self.dim = dim
         self.name = ""
         self.cpu = ""
@@ -73,14 +311,15 @@ class Result:
 
         self.test = None
         self.experiments_range = None
-        self.experiments: List[Experiment] = []
+        self.experiments: List[ExperimentResult] = []
 
         # parallel mode
-        self.par_job_id: Optional[int] = None
-        self.par_job_num: Optional[int] = None
-        self.par_filename: Optional[str] = None
+        self._par_job_id = None
+        self._par_job_num = None
+        self._par_filename = None
 
     def load(self) -> "Result":
+        """Load data from file if filename specified"""
         if self.is_par_mode():
             if not self._load(self.par_filename) and self._load(self.filename):
                 self.experiments_range = self.get_experiments_range(self.test.nexp)
@@ -90,7 +329,12 @@ class Result:
         self._load(self.filename)
         return self
 
-    def _load(self, filename) -> bool:
+    def _load(self, filename: str) -> bool:
+        """Loads data from file if exists
+
+        :param filename: Filename
+        :return: True if file is loaded, False otherwise
+        """
         if not filename or not os.path.isfile(filename):
             return False
 
@@ -104,58 +348,104 @@ class Result:
         return True
 
     def save(self) -> "Result":
+        """Save data to file if filename specified"""
         filename = self.par_filename if self.is_par_mode() else self.filename
         if filename is not None:
             safe_dump(filename, self.data)
         return self
 
-    def set_dim(self, dim: List[int]) -> "Result":
+    def set_dim(self, dim: Dimension) -> "Result":
+        """Sets the system dimension
+
+        :param dim: Dimension object
+        """
         self.dim = dim
         return self
 
     def set_name(self, name: str) -> "Result":
+        """Sets the QT method name
+
+        :param name: QT method name
+        """
         self.name = name
         return self
 
     def set_cpu(self, cpu: Optional[str] = None) -> "Result":
+        """Sets the CPU information
+
+        :param cpu: CPU string name (default: value provided by cpuinfo package), optional
+        """
         self.cpu = get_cpu_info()["brand_raw"] if cpu is None else cpu
         return self
 
     def set_data(self, data: Dict[str, Any]) -> "Result":
+        """Sets the result instance data from dictionary
+
+        :param data: Data dictionary. The keys must correspond to the data_fields attribute.
+        """
         for field in self.data_fields:
             setattr(self, field, data[field])
         return self
 
     @property
     def data(self) -> Dict[str, Any]:
+        """Result instance data
+
+        :return: Data dictionary. The keys correspond to the data_fields attribute.
+        """
         data = {field: getattr(self, field) for field in self.data_fields}
         return data
 
     def init_test(self, test: Test) -> "Result":
+        """Initializes the test
+
+        :param test: Test specification
+        """
         if self.test is not None:
             return self
 
         self.test = test
         self.experiments_range = self.get_experiments_range(test.nexp)
         for experiment_id in range(len(self.experiments_range)):
-            self.experiments.append(Experiment(
+            self.experiments.append(ExperimentResult(
                 number=experiment_id + self.experiments_range[0] + 1,
-                time_est=np.full((len(test.nsample),), np.nan),
-                time_proto=np.full((len(test.nsample),), np.nan),
-                nmeas=np.full((len(test.nsample),), np.nan),
-                fidelity=np.full((len(test.nsample),), np.nan),
+                time_est=[],
+                time_proto=[],
+                nmeas=[],
+                fidelity=[],
                 sm_flag=True
             ))
         return self
 
     @property
+    def par_job_id(self) -> Optional[int]:
+        return self._par_job_id
+
+    @property
+    def par_job_num(self) -> Optional[int]:
+        return self._par_job_num
+
+    @property
+    def par_filename(self) -> Optional[str]:
+        return self._par_filename
+
+    @property
     def par_dir(self) -> str:
+        """Temporal directory that stores the computation results in parallel mode
+
+        :return: Path to directory
+        """
         return os.path.join(
             os.path.dirname(self.filename),
             "tmp_" + os.path.basename(self.filename),
         )
 
     def par_init(self, par_job_id: int, par_job_num: int) -> "Result":
+        """Initializes the parallel mode
+
+        :param par_job_id: Parallel job id
+        :param par_job_num: Total number of jobs
+        """
         assert self.filename, "QTB Error: Filename not specified"
         assert 0 <= par_job_id < par_job_num, "QTB Error: Invalid job id"
 
@@ -164,18 +454,30 @@ class Result:
         except FileExistsError:
             pass
 
-        self.par_job_id = par_job_id
-        self.par_job_num = par_job_num
-        self.par_filename = os.path.join(
+        self._par_job_id = par_job_id
+        self._par_job_num = par_job_num
+        self._par_filename = os.path.join(
             self.par_dir,
             "job_" + str(par_job_id).zfill(len(str(par_job_num-1))) + self.extension
         )
         return self
 
     def is_par_mode(self) -> bool:
+        """Checks if the parallel mode is initialized
+
+        :return: True for parallel mode, False otherwise
+        """
         return self.par_job_id is not None and self.par_job_num is not None
 
     def get_experiments_range(self, n_exp: int) -> range:
+        """Returns the range of experiments to compute
+
+        The results differs for normal and parallel modes.
+        In the latter case the range is a batch defined by par_job_id and par_job_num
+
+        :param n_exp: Total number of experiments
+        :return: Range of experiments
+        """
         if self.is_par_mode():
             n_per_job = int(np.ceil(n_exp / self.par_job_num))
             return range(n_per_job * self.par_job_id, min(n_per_job * (self.par_job_id + 1), n_exp))
@@ -183,6 +485,7 @@ class Result:
             return range(n_exp)
 
     def par_finish(self) -> "Result":
+        """Finishes the parallel mode by merging all the results and deleting the temporal directory"""
         assert self.filename, "QTB Error: Filename not specified"
         assert os.path.isdir(self.par_dir), "QTB Error: Parallel results directory does not exist"
         self.load()
@@ -201,7 +504,7 @@ class Result:
                 self.experiments[experiment_id] = experiment
         self.save()
 
-        print("All results are successfully merged")
+        print(f"All results are successfully merged into {self.filename}")
         if any([np.any(np.isnan(experiment.fidelity)) for experiment in self.experiments]):
             print("Some results are missed")
 
@@ -213,6 +516,12 @@ class Result:
 
 
 def safe_dump(filename: str, data: Dict[str, Any], protect: bool = True) -> None:
+    """Safe file save using pickle and threading
+
+    :param filename: Path to save the data
+    :param data: Data dictionary
+    :param protect: True to protect file from interruption during saving, False otherwise (default: True), optional
+    """
     if protect:
         th = Thread(target=safe_dump, args=(filename, data, False))
         th.start()

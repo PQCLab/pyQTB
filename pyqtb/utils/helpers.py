@@ -1,26 +1,95 @@
-import numpy as np
+"""
 
-from pyqtb import Measurement
+===================================================
+Positive operator-valued measure (POVM) measurement
+===================================================
+The measurement is described by a set of POVM operators.
+The item ``m['povm']: List[numpy.ndarray]`` contains the list of POVM operators matrices.
+The measurement result is a ``numpy.ndarray`` vector of integers that sums up to ``m['nshots']``.
+
+======================
+Observable measurement
+======================
+The measurements of the average value of an observable (e.g. a Pauli observables).
+The item ``m['observable']: numpy.ndarray`` contains the matrix of the observable.
+The measurement results is a float number.
+
+====================
+Operator measurement
+====================
+Only a single POVM operator is considered (e.g. when one projects a polarizing qubit onto a state using the polarizer).
+The ``m['operator']: numpy.ndarray`` contains the matrix of the measurement operator.
+The measurement result is an integer.
+"""
+
+import numpy as np
+from typing import Dict, Any
+
+from pyqtb import Measurement, ProtocolHandler, DataSimulatorHandler
 from pyqtb.analyze import analyze
-from pyqtb.utils.tools import call
 
 import pyqtb.utils.stats as stats
 
 
-def static_proto(proto):
-    mtype, elems = proto["mtype"], proto["elems"]
-    ratio = proto["ratio"] if "ratio" in proto else [1] * len(elems)
+def static_proto(proto: Dict[str, Any]) -> ProtocolHandler:
+    mtype, maps = proto["mtype"], proto["maps"]
+    ratio = proto["ratio"] if "ratio" in proto else [1] * len(maps)
     cdf = np.cumsum(np.array(ratio) / np.sum(ratio))
 
-    def handler(jn, ntot) -> Measurement:
+    def handler(jn, ntot, *_) -> Measurement:
         idx = np.where(cdf >= (jn + 1) / ntot)[0][0]
         return Measurement(
-            mtype=mtype,
-            elem=elems[idx],
-            nshots=(ntot - jn) if idx + 1 == len(cdf) else np.floor(cdf[idx] * ntot) - jn
+            nshots=(ntot - jn) if idx + 1 == len(cdf) else np.floor(cdf[idx] * ntot) - jn,
+            map=maps[idx],
+            extras={"mtype": mtype}
         )
 
-    return handler
+    return ProtocolHandler(handler)
+
+
+def standard_measurements() -> DataSimulatorHandler:
+    def result_by_povm(dm: np.ndarray, meas: Measurement):
+        tol = 1e-8
+        probabilities = np.real(
+            np.array([operator.flatten() for operator in meas.map]) @ np.reshape(dm, (-1,), order="F")
+        )
+
+        if np.any(probabilities < 0):
+            if np.any(probabilities < -tol):
+                raise ValueError("Measurement operators are not valid: negative probabilities exist")
+            probabilities[probabilities < 0] = 0
+
+        total = np.sum(probabilities)
+        if abs(1 - total) > tol:
+            raise ValueError("Measurement operators are not valid: total probability is not equal to 1")
+
+        return stats.sample(probabilities / total, meas.nshots)
+
+    def result_by_operator(dm: np.ndarray, meas: Measurement):
+        return result_by_povm(dm, Measurement(
+            nshots=meas.nshots,
+            map=[meas.map, np.eye(meas.map.shape[0], dtype=complex) - meas.map]
+        ))[0]
+
+    def result_by_observable(dm: np.ndarray, meas: Measurement):
+        w, v = np.linalg.eig(meas.map)
+        clicks = result_by_povm(dm, Measurement(
+            nshots=meas.nshots,
+            map=[np.outer(v[:, j], v[:, j].conj()) for j in range(v.shape[1])]
+        ))
+        return np.sum(clicks * w) / meas.nshots
+
+    def handler(dm: np.ndarray, meas: Measurement):
+        if meas.extras["mtype"] == "povm":
+            return result_by_povm(dm, meas)
+        elif meas.extras["mtype"] == "operator":
+            return result_by_operator(dm, meas)
+        elif meas.extras["mtype"] == "observable":
+            return result_by_observable(dm, meas)
+        else:
+            raise ValueError("Unknown measurement type")
+
+    return DataSimulatorHandler(handler)
 
 
 def iterative_proto(fun_meas_set, *args):
@@ -44,7 +113,7 @@ def iterative_proto(fun_meas_set, *args):
                 iter_len = 0
 
         if new_iter:
-            meas_set = call(fun_meas_set, niter, jn, ntot, meas, *args)
+            meas_set = fun_meas_set(niter, jn, ntot, meas, *args)
             if type(meas_set) is dict:
                 meas_set = [meas_set]
             measurement = meas_set[0]
@@ -60,44 +129,6 @@ def iterative_proto(fun_meas_set, *args):
         return measurement
 
     return handler
-
-
-def standard_meas(dm: np.ndarray, meas: Measurement):
-    if meas.mtype == "povm":
-        tol = 1e-8
-        probabilities = np.real(
-            np.array([operator.flatten() for operator in meas.elem]) @ np.reshape(dm, (-1,), order="F")
-        )
-
-        if np.any(probabilities < 0):
-            if np.any(probabilities < -tol):
-                raise ValueError("Measurement operators are not valid: negative probabilities exist")
-            probabilities[probabilities < 0] = 0
-
-        total = np.sum(probabilities)
-        if abs(1 - total) > tol:
-            raise ValueError("Measurement operators are not valid: total probability is not equal to 1")
-
-        return stats.sample(probabilities / total, meas.nshots)
-
-    elif meas.mtype == "operator":
-        return standard_meas(dm, Measurement(
-            mtype="povm",
-            elem=[meas.elem, np.eye(meas.elem.shape[0], dtype=complex) - meas.elem],
-            nshots=meas.nshots
-        ))[0]
-
-    elif meas.mtype == "observable":
-        w, v = np.linalg.eig(meas.elem)
-        clicks = standard_meas(dm, Measurement(
-            mtype="povm",
-            elem=[np.outer(v[:, j], v[:, j].conj()) for j in range(v.shape[1])],
-            nshots=meas.nshots
-        ))
-        return np.sum(clicks * w) / meas.nshots
-
-    else:
-        raise ValueError("Unknown measurement type")
 
 
 def qn_state_analyze(n: int, proto_name: str, est_name: str, test_code: str, **kwargs):
