@@ -3,15 +3,15 @@ import time
 
 from typing import Callable, List, Union, Any, Tuple
 
-from pyqtb import Dimension, Measurement
+from pyqtb import Dimension, Measurement, ProtocolHandler, DataSimulatorHandler
 from pyqtb.utils.stats import randn
 
 
 def simulate_experiment(
     dm: np.ndarray,
     ntot: int,
-    fun_proto: Callable[[int, int, List[Measurement], List[Any], Dimension], Measurement],
-    fun_meas: Callable[[np.ndarray, Measurement], Any],
+    fun_proto: ProtocolHandler,
+    fun_sim: DataSimulatorHandler,
     dim: Dimension
 ) -> Tuple[List[Any], List[Measurement], float, bool]:
 
@@ -26,7 +26,7 @@ def simulate_experiment(
         assert jn + meas_curr.nshots <= ntot, "QTB Error: Number of measurements exceeds available sample size"
 
         sm_flag = sm_flag and is_product(meas_curr.map, dim)
-        data.append(fun_meas(dm, meas_curr))
+        data.append(fun_sim(dm, meas_curr))
         meas.append(meas_curr)
         jn += meas_curr.nshots
 

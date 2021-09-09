@@ -227,7 +227,7 @@ class Test(NamedTuple):
     Attributes:
         dim         System dimension
         fun_state   Function handler that generates a random state density matrix for a specific dimension
-        fun_meas    Function handler that generates a measurement result for a specific density matrix and measurement
+        fun_sim     Function handler that generates a measurement result for a specific density matrix and measurement
         nsample     List of total sample sizes
         nexp        Number of experiments simulation
         seed        Random number generator seed
@@ -237,7 +237,7 @@ class Test(NamedTuple):
     """
     dim: Dimension
     fun_state: StateGeneratorHandler
-    fun_meas: DataSimulatorHandler
+    fun_sim: DataSimulatorHandler
     nsample: List[int]
     nexp: int
     seed: int

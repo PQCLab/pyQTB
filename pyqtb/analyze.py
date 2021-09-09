@@ -48,7 +48,7 @@ def analyze(
     :param dim: System dimension
     :param fun_proto: Measurement protocol handler
     :param fun_est: Estimator handler
-    :param test: The test to be performed: test code (see pyqtb.tests for available test codes) or a pyqtb.tests.Test object
+    :param test: The test to be performed
     :param name: QT method name that would be displayed in reports, optional
     :param max_nsample: Maximum sample size that the method could handle (infinite by default), optional
     :param display: Display analysis status in the command window (default: True), optional
@@ -90,7 +90,7 @@ def analyze(
             if display:
                 print(f"Experiment {experiment.number}/{test.nexp}, sample size = 1e{np.round(np.log10(ntot)):.0f}")
 
-            data, meas, time_proto, sm_flag = tools.simulate_experiment(dm, ntot, fun_proto, test.fun_meas, dim)
+            data, meas, time_proto, sm_flag = tools.simulate_experiment(dm, ntot, fun_proto, test.fun_sim, dim)
 
             tc = time.time()
             dm_est = fun_est(meas, data, dim)

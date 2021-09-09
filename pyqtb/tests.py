@@ -9,7 +9,7 @@ def rps_test(dim: Dimension) -> Test:
     return Test(
         dim=dim,
         fun_state=StateGeneratorHandler(lambda d: state(d, "haar_dm", rank=1)),
-        fun_meas=standard_measurements(),
+        fun_sim=standard_measurements(),
         rank=1,
         name="Random pure states", title="RPS",
         seed=161,
@@ -22,7 +22,7 @@ def rmspt2_test(dim: Dimension) -> Test:
     return Test(
         dim=dim,
         fun_state=StateGeneratorHandler(lambda d: state(d, "haar_dm", rank=2)),
-        fun_meas=standard_measurements(),
+        fun_sim=standard_measurements(),
         rank=2,
         name="Random mixed states by partial tracing: rank-2", title="RMSPT-2",
         seed=1312,
@@ -35,7 +35,7 @@ def rmsptd_test(dim: Dimension) -> Test:
     return Test(
         dim=dim,
         fun_state=StateGeneratorHandler(lambda d: state(d, "haar_dm", rank=dim.full)),
-        fun_meas=standard_measurements(),
+        fun_sim=standard_measurements(),
         rank=dim.full,
         name="Random mixed states by partial tracing: rank-d", title="RMSPT-d",
         seed=117218,
@@ -48,7 +48,7 @@ def rnp_test(dim: Dimension) -> Test:
     return Test(
         dim=dim,
         fun_state=StateGeneratorHandler(lambda d: state(d, "haar_dm", rank=1, init_err=("unirnd", 0, 0.05), depol=("unirnd", 0, 0.01))),
-        fun_meas=standard_measurements(),
+        fun_sim=standard_measurements(),
         rank=int(np.prod(dim)),
         name="Random noisy preparation", title="RNP",
         seed=758942,

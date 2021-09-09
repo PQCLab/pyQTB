@@ -1,27 +1,3 @@
-"""
-
-===================================================
-Positive operator-valued measure (POVM) measurement
-===================================================
-The measurement is described by a set of POVM operators.
-The item ``m['povm']: List[numpy.ndarray]`` contains the list of POVM operators matrices.
-The measurement result is a ``numpy.ndarray`` vector of integers that sums up to ``m['nshots']``.
-
-======================
-Observable measurement
-======================
-The measurements of the average value of an observable (e.g. a Pauli observables).
-The item ``m['observable']: numpy.ndarray`` contains the matrix of the observable.
-The measurement results is a float number.
-
-====================
-Operator measurement
-====================
-Only a single POVM operator is considered (e.g. when one projects a polarizing qubit onto a state using the polarizer).
-The ``m['operator']: numpy.ndarray`` contains the matrix of the measurement operator.
-The measurement result is an integer.
-"""
-
 import numpy as np
 from typing import Dict, Any
 

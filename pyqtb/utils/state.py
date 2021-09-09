@@ -1,14 +1,16 @@
 import numpy as np
+
+from pyqtb import Dimension
 from pyqtb.utils.stats import randn, rand
 from pyqtb.utils.tools import rand_unitary, complement_basis
 
 
-def state(dim, stype, rank=np.nan, init_err=None, depol=None):
+def state(dim: Dimension, stype, rank=np.nan, init_err=None, depol=None):
     if depol is None:
         depol = []
     if init_err is None:
         init_err = []
-    Dim = int(np.prod(dim))
+    Dim = dim.full
     if np.isnan(rank):
         rank = Dim
     
