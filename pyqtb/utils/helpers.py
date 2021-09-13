@@ -5,9 +5,6 @@ from types import SimpleNamespace
 from typing import List, Protocol, Optional
 
 from pyqtb import Dimension, Measurement, ProtocolHandler, DataSimulatorHandler
-from pyqtb.analyze import analyze
-from pyqtb.tests import get_test
-
 import pyqtb.utils.stats as stats
 
 
@@ -108,7 +105,7 @@ def static_protocol(protocol: List[Measurement]) -> ProtocolHandler:
     def handler(jn: int, ntot: int, *_) -> Measurement:
         idx = np.where(cdf >= (jn + 1) / ntot)[0][0]
         return Measurement(
-            nshots=(ntot - jn) if idx + 1 == len(cdf) else np.floor(cdf[idx] * ntot) - jn,
+            nshots=int((ntot - jn) if idx + 1 == len(cdf) else np.floor(cdf[idx] * ntot) - jn),
             map=protocol[idx].map,
             extras=protocol[idx].extras
         )
@@ -218,4 +215,6 @@ def qn_state_analyze(n: int, proto_name: str, est_name: str, test_code: str, fil
     if "name" not in kwargs:
         kwargs.update({"name": proto_name.upper() + "-" + est_name.upper()})
 
+    from pyqtb.analyze import analyze
+    from pyqtb.tests import get_test
     analyze(dim, proto_fun, est_fun, get_test(test_code, dim), filename=filename, **kwargs)
