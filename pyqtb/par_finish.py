@@ -1,3 +1,9 @@
+"""Finish parallel computation
+
+The command merges all the parallel jobs into a single result file.
+
+``python -m pyqtb.par_finish FILENAME``
+"""
 import sys
 from pyqtb import Result
 

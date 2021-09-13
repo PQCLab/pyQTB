@@ -3,6 +3,8 @@
 A QT method is specified by the set of measurements performed over quantum system and by the quantum state estimator.
 To specify the QT method one should define ProtocolHandler and EstimatorHandler.
 Detailed explanation of these handlers if given in ``pyqtb`` module.
+
+See details in https://arxiv.org/abs/2012.15656
 """
 import time
 import numpy as np

@@ -1,66 +1,73 @@
+"""
+The module contains routines for random states generation
+
+All the random variables are sampled using pyqtb.utils.stats
+
+See details in https://arxiv.org/abs/2012.15656
+"""
 import numpy as np
+from typing import Union, Tuple
 
 from pyqtb import Dimension
 from pyqtb.utils.stats import randn, rand
-from pyqtb.utils.tools import rand_unitary, complement_basis
+from pyqtb.utils.tools import complement_basis
 
 
-def state(dim: Dimension, stype, rank=np.nan, init_err=None, depol=None):
-    if depol is None:
-        depol = []
-    if init_err is None:
-        init_err = []
-    Dim = dim.full
-    if np.isnan(rank):
-        rank = Dim
+def haar_random(dim: Dimension, rank: int, return_eig: bool = False) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
+    """Returns a random density matrix of a specific rank using purification and partial tracing
+
+    See details in https://arxiv.org/abs/2012.15656
+
+    :param dim: System dimension
+    :param rank: State rank
+    :param return_eig: If True, the function returns eigen-decomposition of the density matrix (default: False), optional
+    :returns: Density matrix (if ``return_eig == False``) or (if ``return_eig == True``) its eigen-decomposition
+    """
+    dim = dim.full
+    if rank is None:
+        rank = dim
+    psi = randn((dim, rank)) + 1j * randn((dim, rank))
+    psi = psi / np.linalg.norm(np.reshape(psi, (-1,)))
     
-    if stype == "haar_vec":
-        x = randn((Dim,))+1j*randn((Dim,))
-        return x/np.linalg.norm(x)
-    elif stype == "haar_dm":
-        psi = state(Dim * rank, "haar_vec")
-        psi = np.reshape(psi, (Dim,rank), order="F")
-        u,w,_ = np.linalg.svd(psi, full_matrices=False)
-        w = w**2
-    elif stype == "bures_dm":
-        G = randn((Dim,Dim)) + 1j*randn((Dim,Dim))
-        U = rand_unitary(Dim)
-        A = (np.eye(Dim)+U).dot(G)
-        u,w,_ = np.linalg.svd(A, full_matrices=False)
-        w = w**2
-        w = w/np.sum(w)
+    if return_eig:
+        u, w, _ = np.linalg.svd(psi, full_matrices=False)
+        return u, w ** 2
     else:
-        raise ValueError("Unknown state type: {}".format(stype))
-    
+        return psi @ psi.conj().T
+
+
+def random_noisy_prepared(
+    dim: Dimension,
+    init_error_limits: Tuple[float, float],
+    depolarization_limits: Tuple[float, float]
+) -> np.ndarray:
+    """Simulates the noisy preparation procedure of a random pure state
+
+    The output density matrix is the simulation of a noisy U|0> operation.
+    The simulation includes a random classical initialization error of each subsystem.
+    The U operation is also considered to be noisy with random depolarization error rate.
+
+    See details in https://arxiv.org/abs/2012.15656
+
+    :param dim: System dimension
+    :param init_error_limits: Limits of the values of initialization error random variable
+    :param depolarization_limits: Limits of the values of depolarization error rate random variable
+    :return: Output density matrix
+    """
+    u, w = haar_random(dim, 1, True)
+
+    # Fill basis with zero eigenvalues
     u = complement_basis(u)
-    if len(w) < Dim: w = np.pad(w, (0,Dim-len(w)), "constant")
-    
-    if init_err:
-        e0 = param_generator(*init_err)
-        w = 1
-        for d in dim:
-            w = np.kron(w, np.array([1-e0,e0] + [0]*(d-2)))
-    
-    if depol:
-        p = param_generator(*depol)
-        w = (1-p)*w + p/Dim
-    
-    return (u*w).dot(u.conj().T)
+    if len(w) < dim.full:
+        w = np.pad(w, (0, dim.full - len(w)), "constant")
 
+    # Include initialization error
+    e0 = rand() * (init_error_limits[1] - init_error_limits[0]) + init_error_limits[0]
+    for d in dim.list:
+        w = np.kron(w, np.array([1 - e0, e0] + [0] * (d - 2)))
 
-def param_generator(ptype, x1, x2=1, lims=None):
-    if lims is None:
-        lims = [np.nan, np.nan]
-    if ptype == "fixed":
-        p = x1
-    elif ptype == "unirnd":
-        p = rand()*(x2-x1) + x1
-    elif ptype == "normrnd":
-        p = randn()*x2 + x1
-        if lims[0] is not np.nan and p < lims[0]:
-            p = lims[0]
-        elif lims[1] is not np.nan and p > lims[1]:
-            p = lims[1]
-    else:
-        raise ValueError("Unknown depolarization type: {}".format(ptype))
-    return p
+    # Include depolarizing noise
+    p = rand() * (depolarization_limits[1] - depolarization_limits[0]) + depolarization_limits[0]
+    w = (1 - p) * w + p / dim.full
+
+    return (u * w) @ u.conj().T

@@ -32,4 +32,4 @@ def est_frml() -> EstimatorHandler:
         init = meas[-1].extras["dm"] if (type(meas[-1]) is dict and "dm" in meas[-1].extras) else "pinv"
         return reconstruct_state(e, rank="full", tol=1e-10, init=init).dm
 
-    return EstimatorHandler(handler)
+    return handler

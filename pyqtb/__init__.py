@@ -3,8 +3,7 @@ import os
 import numpy as np
 import dill as pickle
 
-from typing import NamedTuple, List, Callable, Any, Optional, Dict
-from abc import ABC
+from typing import NamedTuple, List, Any, Optional, Dict, Protocol
 
 from threading import Thread
 from types import SimpleNamespace
@@ -42,33 +41,25 @@ class Dimension:
         return self.list[item]
 
 
-class Measurement(NamedTuple):
+class Measurement(SimpleNamespace):
     """Measurement specification
 
     Attributes:
         nshots  Integer sample size
         map     An object that can map a density matrix into the measurement result (e.g. list of POVM operators)
-        extras  Extra measurement information that could be accessed within QT method handlers (default: None), optional
+        extras  Extra measurement information that could be accessed within QT method handlers (default: {}), optional
     """
     nshots: int
     map: Any
-    extras: Any = None
+    extras: Dict[str, Any]
+    
+    def __init__(self, **kwargs):
+        if "extras" not in kwargs:
+            kwargs.update({"extras": {}})
+        super(Measurement, self).__init__(**kwargs)
 
 
-class Handler(ABC):
-    """Abstract class for function handlers data types
-
-    Attributes:
-        fun Function handler
-    """
-    def __init__(self, fun: Callable):
-        self._fun = fun
-
-    def __call__(self, *args, **kwargs):
-        return self._fun(*args, **kwargs)
-
-
-class ProtocolHandler(Handler):
+class ProtocolHandler(Protocol):
     """Measurement protocol handler data type
 
     Handlers of types ProtocolHandler and EstimatorHandler together specify the QT method.
@@ -111,21 +102,21 @@ class ProtocolHandler(Handler):
             return ProtocolHandler(handler)
 
 
-    **Example: Using static_proto helper**
+    **Example: Using static_protocol helper**
     ::
 
-        from pyqtb.utils.helpers import static_proto
+        from pyqtb.utils.helpers import static_protocol
         def povm_protocol_handler():
-            return static_proto({
+            return static_protocol({
                 'mtype': 'povm',  # POVM measurement type
                 'maps': [[...], [...], ...],  # list of POVM operators sets
             })
     """
-    def __init__(self, fun: Callable[[int, int, List[Measurement], List[Any], Dimension], Measurement]):
-        super().__init__(fun)
+    def __call__(self, jn: int, ntot: int, meas: List[Measurement], data: List[Any], dim: Dimension) -> Measurement:
+        ...
 
 
-class EstimatorHandler(Handler):
+class EstimatorHandler(Protocol):
     """Estimator handler data type
 
     Handlers of types ProtocolHandler and EstimatorHandler together specify the QT method.
@@ -152,11 +143,11 @@ class EstimatorHandler(Handler):
                 return dm
             return EstimatorHandler(handler)
     """
-    def __init__(self, fun: Callable[[List[Measurement], List[Any], Dimension], np.ndarray]):
-        super().__init__(fun)
+    def __call__(self, meas: List[Measurement], data: List[Any], dim: Dimension) -> np.ndarray:
+        ...
 
 
-class StateGeneratorHandler(Handler):
+class StateGeneratorHandler(Protocol):
     """State generator handler data type
 
     The handler determines the class of quantum states that are covered by a specific test.
@@ -184,11 +175,11 @@ class StateGeneratorHandler(Handler):
                 return np.diag([1 - e, e] + [0] * (dim.full - 2))
             return StateGeneratorHandler(handler)
     """
-    def __init__(self, fun: Callable[[Dimension], np.ndarray]):
-        super().__init__(fun)
+    def __call__(self, dim: Dimension) -> np.ndarray:
+        ...
 
 
-class DataSimulatorHandler(Handler):
+class DataSimulatorHandler(Protocol):
     """Measurement data simulator handler data type
 
     The handler determines the way the data is simulated within a specific test.
@@ -217,8 +208,8 @@ class DataSimulatorHandler(Handler):
                 return mnrnd(probabilities, m.nshots)
             return DataSimulatorHandler(handler)
     """
-    def __init__(self, fun: Callable[[np.ndarray, Measurement], Any]):
-        super().__init__(fun)
+    def __call__(self, dm: np.ndarray, m: Measurement) -> Any:
+        ...
 
 
 class Test(NamedTuple):

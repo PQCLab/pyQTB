@@ -1,29 +1,46 @@
+"""The module contains wrappers to simplify the package usage"""
 import numpy as np
-from typing import Dict, Any
+from copy import copy
+from types import SimpleNamespace
+from typing import List, Protocol, Optional
 
-from pyqtb import Measurement, ProtocolHandler, DataSimulatorHandler
+from pyqtb import Dimension, Measurement, ProtocolHandler, DataSimulatorHandler
 from pyqtb.analyze import analyze
+from pyqtb.tests import get_test
 
 import pyqtb.utils.stats as stats
 
 
-def static_proto(proto: Dict[str, Any]) -> ProtocolHandler:
-    mtype, maps = proto["mtype"], proto["maps"]
-    ratio = proto["ratio"] if "ratio" in proto else [1] * len(maps)
-    cdf = np.cumsum(np.array(ratio) / np.sum(ratio))
-
-    def handler(jn, ntot, *_) -> Measurement:
-        idx = np.where(cdf >= (jn + 1) / ntot)[0][0]
-        return Measurement(
-            nshots=(ntot - jn) if idx + 1 == len(cdf) else np.floor(cdf[idx] * ntot) - jn,
-            map=maps[idx],
-            extras={"mtype": mtype}
-        )
-
-    return ProtocolHandler(handler)
-
-
 def standard_measurements() -> DataSimulatorHandler:
+    """Measurement data simulator handler for ideal measurements
+
+    The handler supports different types of measurements. The particular type depend on the output ``m: Measurement``
+    of protocol handler for a given QT method.
+    Below we consider ``dm: np.ndarray`` to be the input state density matrix.
+
+    **Positive Operator-Valued Measure (POVM) measurement**
+
+    * ``m.extras['type'] == 'povm'`` (or empty)
+    * ``m.map: List[np.ndarray]`` -- list of POVM operators matrices such that
+
+    Here ``np.trace(dm @ m.map[j])`` is the probability to get ``j``-th measurement result.
+
+    **Operator measurement**
+
+    * ``m.extras['type'] == 'operator'``
+    * ``m.map: np.ndarray`` -- measurement operator matrix
+
+    Here ``np.trace(dm @ m.map)`` is the probability to observe a count in the measurement.
+
+    **Observable measurement**
+
+    * ``m.extras['type'] == 'observable'``
+    * ``m.map: np.ndarray`` -- matrix of an observable
+
+    Here ``np.trace(dm @ m.map)`` is the observable expected value.
+
+    :return: Measurement data simulator handler
+    """
     def result_by_povm(dm: np.ndarray, meas: Measurement):
         tol = 1e-8
         probabilities = np.real(
@@ -56,108 +73,149 @@ def standard_measurements() -> DataSimulatorHandler:
         return np.sum(clicks * w) / meas.nshots
 
     def handler(dm: np.ndarray, meas: Measurement):
-        if meas.extras["mtype"] == "povm":
+        if "type" not in meas.extras or meas.extras["type"] == "povm":
             return result_by_povm(dm, meas)
-        elif meas.extras["mtype"] == "operator":
+        elif meas.extras["type"] == "operator":
             return result_by_operator(dm, meas)
-        elif meas.extras["mtype"] == "observable":
+        elif meas.extras["type"] == "observable":
             return result_by_observable(dm, meas)
         else:
             raise ValueError("Unknown measurement type")
 
-    return DataSimulatorHandler(handler)
+    return handler
 
 
-def iterative_proto(fun_meas_set, *args):
-    def handler(jn, ntot, meas):
-        new_iter, iter_len = False, 0
-        if not len(meas):
-            new_iter = True
-            niter = 1
-            start = 0
-            current = 0
-        else:
-            niter = meas[-1]["niter"]
-            start = meas[-1]["iter_start"]
-            current = meas[-1]["iter_current"] + 1
-            iter_len = meas[-1]["iter_length"]
-            if current >= iter_len:
-                new_iter = True
-                niter += 1
-                start = len(meas)
-                current = 0
-                iter_len = 0
+def static_protocol(protocol: List[Measurement]) -> ProtocolHandler:
+    """Returns the protocol handler for static (non-adaptive) measurements
 
-        if new_iter:
-            meas_set = fun_meas_set(niter, jn, ntot, meas, *args)
-            if type(meas_set) is dict:
-                meas_set = [meas_set]
-            measurement = meas_set[0]
-            measurement["meas_set"] = meas_set
-            iter_len = len(meas_set)
-        else:
-            measurement = meas[start]["meas_set"][current]
+    Non-adaptive QT methods rely on a set of measurements that are all independent of each other.
+    The function input is the list of measurements to be perform.
 
-        measurement["niter"] = niter
-        measurement["iter_start"] = start
-        measurement["iter_current"] = current
-        measurement["iter_length"] = iter_len
-        return measurement
+    The relative values of field ``nshots`` for each measurement specification are used to set the absolute values
+    of sample size for each measurement.
+    For example, consider a tomography experiment with 1000 total sample size.
+    ``static_protocol([Measurement(nshots=1, ...), Measurement(nshots=1, ...)])`` will return a protocol handler for
+    two measurements with sample size 500 each.
+     ``static_protocol([Measurement(nshots=1, ...), Measurement(nshots=3, ...)])`` means that the second measurement
+     will have 3 times more samples. So the first measurement is conducted 250 times and the second one -- 750 times.
+
+    :param protocol: List of protocol measurements
+    :return: Protocol function handler
+    """
+    ratio = [m.nshots for m in protocol]
+    cdf = np.cumsum(np.array(ratio) / np.sum(ratio))
+
+    def handler(jn: int, ntot: int, *_) -> Measurement:
+        idx = np.where(cdf >= (jn + 1) / ntot)[0][0]
+        return Measurement(
+            nshots=(ntot - jn) if idx + 1 == len(cdf) else np.floor(cdf[idx] * ntot) - jn,
+            map=protocol[idx].map,
+            extras=protocol[idx].extras
+        )
 
     return handler
 
 
-def qn_state_analyze(n: int, proto_name: str, est_name: str, test_code: str, **kwargs):
+class IterProtocolHandler(Protocol):
+    """Iteration measurement protocol handler data type
 
+    The handler serves iterative_protocol.
+    It is basically the same as pyqtb.ProtocolHandler but includes extra first argument ``iteration: int`` for iteration
+    number.
+    """
+    def __call__(self, iteration: int, jn: int, ntot: int, meas: List[Measurement], *args) -> List[Measurement]:
+        ...
+
+
+def iterative_protocol(iteration_protocol: IterProtocolHandler) -> ProtocolHandler:
+    """Returns the protocol handler for iterative adaptive measurements
+
+    Each iteration contains a protocol being a list of measurements.
+
+    :param iteration_protocol: Function handler that returns the protocol for a given iteration
+    :return: Protocol function handler
+    """
+    class Iteration(SimpleNamespace):
+        number: int
+        start: int
+        current: int
+        length: Optional[int] = None
+
+    def handler(jn: int, ntot: int, meas: List[Measurement], *args) -> Measurement:
+        if meas:
+            iteration = copy(meas[-1].extras["iteration"])
+            iteration.current += 1
+            if iteration.current == iteration.length:
+                iteration = Iteration(number=iteration.number + 1, start=len(meas), current=0)
+        else:
+            iteration = Iteration(number=1, start=0, current=0)
+
+        if iteration.length is None:
+            protocol = iteration_protocol(iteration.number, jn, ntot, meas, *args)
+            assert sum([m.nshots for m in protocol]) <= (ntot - jn),\
+                "QTB Error: Iteration protocol total sample size exceeds available number of measurements"
+            meas_current = protocol[0]
+            meas_current.extras.update({"iteration_protocol": protocol})
+            iteration.length = len(protocol)
+        else:
+            meas_current = meas[iteration.start].extras["iteration_protocol"][iteration.current]
+
+        meas_current.extras.update({"iteration": iteration})
+        return meas_current
+
+    return handler
+
+
+def qn_state_analyze(n: int, proto_name: str, est_name: str, test_code: str, filename: str = None, **kwargs) -> None:
+    """Wrapper to run QTB for a set of qubits
+
+    If ``filename`` argument is not provided, it is generated automatically and printed out.
+
+    :param n: Number of qubits
+    :param proto_name: String protocol name
+    :param est_name: String estimator name
+    :param test_code: String test code
+    :param filename: Name of the file to save the results
+    :param kwargs: Additional arguments to pass into pyqtb.analyze function
+    :return:
+    """
+    dim = Dimension([2] * n)
     proto_name = proto_name.lower()
     est_name = est_name.lower()
     test_code = test_code.lower()
-    dim = [2] * n
 
     if est_name == "ppi":
         from pyqtb.methods.est_ppi import est_ppi
         est_fun = est_ppi()
-        est_mtype = "povm"
     elif est_name == "frml":
         from pyqtb.methods.est_frml import est_frml
         est_fun = est_frml()
-        est_mtype = "povm"
     elif est_name == "arml":
         from pyqtb.methods.est_arml import est_arml
         est_fun = est_arml()
-        est_mtype = "povm"
     else:
         raise ValueError("Unknown estimator name")
 
     if proto_name == "fmub":
         from pyqtb.methods.proto_fmub import proto_fmub
         proto_fun = proto_fmub(dim)
-        proto_mtype = "povm"
     elif proto_name == "amub":
         from pyqtb.methods.proto_amub import proto_amub
-        proto_fun = proto_amub(np.prod(dim), est_fun)
-        proto_mtype = "povm"
+        proto_fun = proto_amub(dim.full, est_fun)
     elif proto_name == "fo":
         from pyqtb.methods.proto_fo import proto_fo
         proto_fun = proto_fo(est_fun)
-        proto_mtype = "povm"
     elif proto_name == "fomub":
         from pyqtb.methods.proto_fomub import proto_fomub
         proto_fun = proto_fomub(dim, est_fun)
-        proto_mtype = "povm"
     else:
         raise ValueError("Unknown protocol name")
 
-    if est_mtype != proto_mtype:
-        raise ValueError("Protocol {} and estimator {} are incompatible".format(proto_name.upper(), est_name.upper()))
-
-    if "filename" not in kwargs:
-        if test_code == "all":
-            kwargs.update({"filename": "q{}_{}-{}.pickle".format(n, proto_name, est_name)})
-        else:
-            kwargs.update({"filename": "q{}_{}_{}-{}.pickle".format(n, test_code, proto_name, est_name)})
+    if filename is None:
+        filename = f"q{n}_{test_code}_{proto_name}-{est_name}.pickle"
+        print(f"Generated filename: {filename}")
 
     if "name" not in kwargs:
         kwargs.update({"name": proto_name.upper() + "-" + est_name.upper()})
 
-    analyze(proto_fun, est_fun, dim, [test_code], mtype=proto_mtype, **kwargs)
+    analyze(dim, proto_fun, est_fun, get_test(test_code, dim), filename=filename, **kwargs)
