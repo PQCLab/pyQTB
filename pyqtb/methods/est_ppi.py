@@ -2,8 +2,8 @@
 Projected pseudo-inversion (PPI) estimator by POVM measurements results. Density matrix is estimated by linear
 inversion of measurements results and eigenvalues projection on canonical simplex.
 """
-
 import numpy as np
+from pyqtb import Dimension, Measurement, List, EstimatorHandler
 
 
 def est_ppi():
@@ -11,10 +11,12 @@ def est_ppi():
 
     :return: Estimator handler
     """
-    def handler(meas, data, dim) -> np.ndarray:
-        dim = np.prod(dim)
+    def handler(meas: List[Measurement], data: List[np.ndarray], dim: Dimension) -> np.ndarray:
+        dim = dim.full
 
-        operators = [m["povm"] for m in meas]
+        operators = [
+            np.concatenate(tuple([np.expand_dims(operator, axis=0) for operator in m.map]), axis=0) for m in meas
+        ]
         operators = np.concatenate(tuple(operators), axis=0)
         meas_matrix = np.reshape(operators, (operators.shape[0], -1))
 
