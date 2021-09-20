@@ -16,7 +16,7 @@ import pyqtb.utils.tools as tools
 import pyqtb.utils.stats as stats
 
 
-def analyze(
+def collect(
     dim: Dimension,
     fun_proto: ProtocolHandler,
     fun_est: EstimatorHandler,
@@ -29,7 +29,7 @@ def analyze(
     par_job_id: Optional[int] = None,
     par_job_num: Optional[int] = None
 ) -> Result:
-    """Runs tests to analyze the QT method.
+    """Runs tests to collect the QT method.
 
     Given the argument ``filename`` is set, the program stores the intermediate analysis results in the file.
     If the file already exists the program tries to load existing results and update them.

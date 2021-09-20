@@ -171,7 +171,7 @@ def iterative_protocol(iteration_protocol: IterProtocolHandler) -> ProtocolHandl
     return handler
 
 
-def qn_state_analyze(n: int, proto_name: str, est_name: str, test_code: str, filename: str = None, **kwargs) -> Result:
+def qubits_qt_collect(n: int, proto_name: str, est_name: str, test_code: str, filename: str = None, **kwargs) -> Result:
     """Wrapper to run QTB for a set of qubits
 
     If ``filename`` argument is not provided, it is generated automatically and printed out.
@@ -181,7 +181,7 @@ def qn_state_analyze(n: int, proto_name: str, est_name: str, test_code: str, fil
     :param est_name: String estimator name
     :param test_code: String test code
     :param filename: Name of the file to save the results
-    :param kwargs: Additional arguments to pass into pyqtb.analyze function
+    :param kwargs: Additional arguments to pass into pyqtb.collect function
     :return:
     """
     dim = Dimension([2] * n)
@@ -226,6 +226,6 @@ def qn_state_analyze(n: int, proto_name: str, est_name: str, test_code: str, fil
     if "name" not in kwargs:
         kwargs.update({"name": proto_name.upper() + "-" + est_name.upper()})
 
-    from pyqtb.analyze import analyze
+    from pyqtb.analyze import collect
     from pyqtb.tests import get_test
-    return analyze(dim, proto_fun, est_fun, get_test(test_code, dim), filename=filename, **kwargs)
+    return collect(dim, proto_fun, est_fun, get_test(test_code, dim), filename=filename, **kwargs)
