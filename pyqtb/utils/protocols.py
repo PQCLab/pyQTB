@@ -19,10 +19,10 @@ def pauli(num_qubits: int = 1) -> List[Measurement]:
     :return: List of measurements
     """
     s = [
-        np.array([[1, 0], [0, 1]]),
-        np.array([[0, 1], [1, 0]]),
-        np.array([[0, -1j], [1j, 0]]),
-        np.array([[1, 0], [0, -1]])
+        np.array([[1, 0], [0, 1]], dtype=complex),
+        np.array([[0, 1], [1, 0]], dtype=complex),
+        np.array([[0, -1j], [1j, 0]], dtype=complex),
+        np.array([[1, 0], [0, -1]], dtype=complex)
     ]
     elements = s
     for _ in range(num_qubits - 1):
@@ -40,7 +40,7 @@ def mub(dim: int) -> List[Measurement]:
     """
     assert dim in [2, 3, 4, 8], "QTB Error: Only MUB dimensions 2, 3, 4, 8 are currently supported"
     with open(os.path.dirname(__file__) + "/mubs.pickle", "rb") as handle:
-        bases = pickle.load(handle)["mub" + str(dim)]
+        bases = [u.astype(complex) for u in pickle.load(handle)["mub" + str(dim)]]
         return [Measurement(nshots=1, map=tools.basis2povm(u), extras={"type": "povm", "basis": u}) for u in bases]
 
 
@@ -56,5 +56,5 @@ def factorized_mub(dim: List[int]) -> List[Measurement]:
     bases = [m.extras["basis"] for m in mub(dim[0])]
     if len(dim) > 1:
         for d in dim[1:]:
-            bases = tools.kron_list(bases, [m.extras["basis"] for m in mub(dim[0])])
+            bases = tools.kron_list(bases, [m.extras["basis"] for m in mub(d)])
     return [Measurement(nshots=1, map=tools.basis2povm(u), extras={"type": "povm", "basis": u}) for u in bases]

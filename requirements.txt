@@ -1,5 +1,4 @@
 numpy
 scipy
-dict-hash
 py-cpuinfo
 dill
