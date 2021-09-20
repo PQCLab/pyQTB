@@ -1,68 +1,76 @@
+"""Factorized orthogonal (FO) tomography protocol
+
+Adaptive tomography protocol.
+Each measurement is conducted in the factorized basis orthogonal to eigen-basis of current estimator.
+
+See details in https://arxiv.org/abs/2012.15656
+"""
 import numpy as np
-import pyqtb.utils.tools as qtb_tools
-import pyqtb.utils.stats as qtb_stats
+from typing import List
+
+from pyqtb import Dimension, Measurement, ProtocolHandler, EstimatorHandler
+
+import pyqtb.utils.tools as tools
+import pyqtb.utils.stats as stats
 from scipy.optimize import minimize
 
 
-def proto_fo(fun_est):
-    return lambda jn, ntot, meas, data, dim: handler(jn, ntot, meas, data, dim, fun_est)
+def proto_fo(fun_est: EstimatorHandler) -> ProtocolHandler:
+    """Returns protocol handler for FO tomography protocol
+
+    :param fun_est: Function handler that returns current estimator based on data observed
+    :return: Protocol handler
+    """
+    def handler(jn: int, ntot: int, meas: List[Measurement], data: List[np.ndarray], dim: Dimension) -> Measurement:
+        assert dim.list != [2], "QTB Error: Single-qubit case not supported for FO protocol"
+        extras = {"type": "povm"}
+
+        if jn == 0:
+            basis = np.eye(dim.full)
+        else:
+            dm = fun_est(meas, data, dim)
+            num_vectors = stats.randi(sum(dim.list) - len(dim))
+            sub_basis = tools.principal(dm, num_vectors)
+            orthogonal_basis_vectors = get_orthogonal_basis(sub_basis, dim)
+            basis = 1
+            for phi in orthogonal_basis_vectors:
+                basis = np.kron(basis, tools.complement_basis(phi))
+
+            if jn > 1e4:
+                extras.update({"dm": dm})
+
+        nshots = max(100, np.floor(jn / 30))
+        nshots = min(ntot - jn, nshots)
+        return Measurement(nshots=nshots, map=tools.basis2povm(basis), extras=extras)
+
+    return handler
 
 
-def handler(jn, ntot, meas, data, dim, fun_est):
-    if dim == [2]:
-        raise ValueError("Single-qubit case not supported")
+def get_orthogonal_basis(sub_basis: np.ndarray, dim: Dimension):
+    num_vectors = sub_basis.shape[1]
+    assert num_vectors <= sum(dim) - len(dim), "QTB Error: Too many vectors, system could not be resolved"
 
-    if jn > 0:
-        dm = qtb_tools.call(fun_est, meas, data, dim)
-        K = qtb_stats.randi(sum(dim) - len(dim))
-        psi = qtb_tools.principal(dm, K)
-        phis = get_suborth(psi, dim)
-        u = 1
-        for phi in phis:
-            u = np.kron(u, qtb_tools.complete_basis(phi))
-    else:
-        u = np.eye(int(np.prod(dim)))
+    def parametrize(x: np.ndarray, normalize: bool):
+        sub_vectors, norms, vector = [], [], 1
+        for d in dim.list:
+            phi = x[0:d] + 1j * x[d:2 * d]
+            sub_vectors.append(phi)
+            norms.append(np.linalg.norm(phi))
+            if normalize:
+                phi = phi / norms[-1]
+            vector = np.kron(vector, phi)
+            x = x[2 * d:]
+        return sub_vectors, vector, np.array(norms)
 
-    nshots = max(100, np.floor(jn / 30))
-    nshots = min(ntot - jn, nshots)
+    def fun(x: np.ndarray):
+        _, vector, norms = parametrize(x, False)
+        return sum(abs(vector.conj() @ sub_basis) ** 2) + sum(norms + 1 / norms) - 2 * len(norms)
 
-    measurement = {"povm": qtb_tools.vec2povm(u), "nshots": nshots}
-    if jn > 1e4:
-        measurement.update({"dm": dm})
-    return measurement
+    result, fun_value = None, 1
+    while fun_value > 1e-5:
+        x0 = stats.randn((2 * sum(dim),))
+        result = minimize(fun, x0, method="BFGS")
+        fun_value = result.fun
 
-
-def get_suborth(psi, dim):
-    K = psi.shape[1]
-    if K > (sum(dim) - len(dim)):
-        raise ValueError("Too many vectors. System could not be resolved")
-
-    res = None
-    fval = 1
-    while fval > 1e-5:
-        x0 = qtb_stats.randn((2 * sum(dim),))
-        res = minimize(_suborth_fun, x0, args=(psi, dim), method="BFGS")
-        fval = res.fun
-
-    phis, _, _ = _suborth_param(res.x, dim)
-    return phis
-
-
-def _suborth_fun(x, psi, dim):
-    _, phi, norms = _suborth_param(x, dim, normalize=False)
-    return sum(abs(phi.conj().T.dot(psi)) ** 2) + sum(norms + 1 / norms) - 2 * len(norms)
-
-
-def _suborth_param(x, dim, normalize=True):
-    phis = []
-    norms = []
-    phi = 1
-    for d in dim:
-        phi_j = x[0:d] + 1j * x[d:2 * d]
-        phis.append(phi_j)
-        norms.append(np.linalg.norm(phi_j))
-        if normalize:
-            phi_j = phi_j / norms[-1]
-        phi = np.kron(phi, phi_j)
-        x = x[2 * d:]
-    return phis, phi, np.array(norms)
+    # noinspection PyUnresolvedReferences
+    return parametrize(result.x, True)[0]

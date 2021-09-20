@@ -119,7 +119,7 @@ def sample(p: np.ndarray, n: int) -> np.ndarray:
     :return: Array of observed counts
     """
     if n > 1e4:  # normal approximation for performance
-        mu = p*n
+        mu = p * n
         sigma = (-np.outer(p, p) + np.diag(p)) * n
         k = np.round(mvnrnd(mu, sigma))
         k[np.where(k < 0)[0]] = 0
@@ -130,10 +130,10 @@ def sample(p: np.ndarray, n: int) -> np.ndarray:
     else:
         if len(p) == 2:
             k = np.empty((2,))
-            k[0] = binornd(n, p[0])
+            k[0] = binornd(int(n), p[0])
             k[1] = n - k[0]
         else:
-            k = mnrnd(n, p)
+            k = mnrnd(int(n), p)
     return k
 
 

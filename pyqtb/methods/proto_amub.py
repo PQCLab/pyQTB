@@ -1,6 +1,7 @@
-"""Factorized mutually unbiased bases (MUB) protocol
+"""Adaptive mutually unbiased bases (MUB) protocol
 
-POVM elements are tensor products of MUB bases for each subsystem
+Adaptive tomography protocol.
+MUB basis is rotated such that the first basis is the current estimator eigen-basis.
 
 See details in https://arxiv.org/abs/2012.15656
 """
@@ -13,6 +14,12 @@ from pyqtb.utils.helpers import iterative_protocol
 
 
 def proto_amub(dim: Dimension, fun_est: EstimatorHandler) -> ProtocolHandler:
+    """Returns protocol handler for adaptive MUB tomography protocol
+
+    :param dim: System dimension
+    :param fun_est: Function handler that returns current estimator based on data observed
+    :return: Protocol handler
+    """
     protocol_base = mub(dim.full)
     povm0_base = protocol_base[0].extras["basis"].conj().T
     num_bases = len(protocol_base)
