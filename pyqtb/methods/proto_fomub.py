@@ -1,48 +1,75 @@
+"""Factorized orthogonal (FO) mutually unbiased bases (MUB) tomography protocol
+
+Adaptive tomography protocol.
+Each measurement is conducted in the rotated factorized MUB bases such that one of the total POVM
+operators is orthogonal to the current estimator.
+
+See details in https://arxiv.org/abs/2012.15656
+"""
 import numpy as np
-import pyqtb.utils.tools as qtb_tools
-import pyqtb.utils.stats as qtb_stats
-from pyqtb.utils import protocols
-from .proto_fo import get_suborth
-from ..utils.helpers import iterative_proto
-from copy import deepcopy
+from typing import List
+
+from pyqtb import Dimension, Measurement, ProtocolHandler, EstimatorHandler
+from pyqtb.utils.protocols import mub
+from pyqtb.utils.helpers import iterative_protocol
+from pyqtb.methods.proto_amub import proto_amub
+from pyqtb.methods.proto_fo import get_orthogonal_basis
+
+import pyqtb.utils.tools as tools
+import pyqtb.utils.stats as stats
 
 
-def proto_fomub(dim, fun_est):
-    base_elems = []
-    vh = []
-    for d in dim:
-        proto = protocols("mub" + str(d))
-        base_elems.append(proto["elems"])
-        vh.append(proto["vectors"][0].conj().T)
-    return iterative_proto(get_measset, base_elems, vh, fun_est)
+def proto_fomub(dim: Dimension, fun_est: EstimatorHandler) -> ProtocolHandler:
+    """Returns protocol handler for factorized orthogonal MUB tomography protocol
 
+    :param dim: System dimension
+    :param fun_est: Function handler that returns current estimator based on data observed
+    :return: Protocol handler
+    """
+    if len(dim) == 1:
+        return proto_amub(dim, fun_est)
 
-def get_measset(iter, jn, ntot, meas, data, dim, base_elems, vh, fun_est):
-    if iter > 1:
-        dm = qtb_tools.call(fun_est, meas, data, dim)
-        K = qtb_stats.randi(sum(dim) - len(dim))
-        psi = qtb_tools.principal(dm, K)
-        phis = get_suborth(psi, dim)
-        proto = []
-        for elems, phi_j, vh_j in zip(deepcopy(base_elems), phis, vh):
-            u = qtb_tools.complete_basis(phi_j).dot(vh_j)
-            for elem in elems:
-                for k in range(elem.shape[0]):
-                    elem[k, :, :] = u.dot(elem[k, :, :]).dot(u.conj().T)
-            proto = qtb_tools.listkron(proto, elems) if proto else elems
-    else:
-        proto = []
-        for elems in base_elems:
-            proto = qtb_tools.listkron(proto, elems) if proto else elems
+    protocol_base_sub, povm0_base_sub, num_bases = [], [], 1
+    for d in dim.list:
+        protocol_base_sub.append(mub(d))
+        povm0_base_sub.append(protocol_base_sub[-1][0].extras["basis"].conj().T)
+        num_bases *= len(protocol_base_sub[-1])
 
-    m = len(proto)
-    nshots = [max(100, np.floor(jn / 30))] * m
-    nleft = ntot - jn
-    if nleft < sum(nshots):
-        nshots = [np.floor(nleft / m)] * m
-        nshots[-1] = nleft - sum(nshots[0:-1])
+    def handler(
+            iteration: int, jn: int, ntot: int, meas: List[Measurement], data: List[np.ndarray], dim: Dimension
+    ) -> List[Measurement]:
+        if iteration == 1:
+            dm = None
+            povm_sub = []
+            for protocol_j in protocol_base_sub:
+                povm_sub.append([m.map for m in protocol_j])
+        else:
+            dm = fun_est(meas, data, dim)
+            num_vectors = stats.randi(sum(dim.list) - len(dim))
+            sub_basis = tools.principal(dm, num_vectors)
+            orthogonal_basis_vectors = get_orthogonal_basis(sub_basis, dim)
 
-    measset = [{"povm": povm, "nshots": n} for povm, n in zip(proto, nshots)]
-    if iter > 1 and jn > 1e4:
-        measset[-1].update({"dm": dm})
-    return measset
+            povm_sub = []
+            for phi, protocol_j, povm0_base in zip(orthogonal_basis_vectors, protocol_base_sub, povm0_base_sub):
+                povm0_basis = tools.complement_basis(phi) @ povm0_base
+                povm_sub.append([
+                    [povm0_basis @ operator @ povm0_basis.conj().T for operator in m.map]
+                    for m in protocol_j
+                ])
+
+        nshots = [max(100, np.floor(jn / 30))] * num_bases
+        nleft = ntot - jn
+        if nleft < sum(nshots):
+            nshots = [np.floor(nleft / num_bases)] * num_bases
+            nshots[-1] = nleft - sum(nshots[0:-1])
+
+        povm = povm_sub[0]
+        for j in range(1, len(povm_sub)):
+            povm = tools.kron_list(povm, povm_sub[j])
+
+        protocol = [Measurement(nshots=n, map=list(p), extras={"type": "povm"}) for p, n in zip(povm, nshots)]
+        if jn > 1e4:
+            protocol[-1].extras.update({"dm": dm})
+        return protocol
+
+    return iterative_protocol(handler)
