@@ -4,7 +4,7 @@ from copy import copy
 from types import SimpleNamespace
 from typing import List, Protocol, Optional, Any
 
-from pyqtb import Dimension, Measurement, ProtocolHandler, DataSimulatorHandler
+from pyqtb import Dimension, Measurement, ProtocolHandler, DataSimulatorHandler, Result
 import pyqtb.utils.stats as stats
 
 
@@ -171,7 +171,7 @@ def iterative_protocol(iteration_protocol: IterProtocolHandler) -> ProtocolHandl
     return handler
 
 
-def qn_state_analyze(n: int, proto_name: str, est_name: str, test_code: str, filename: str = None, **kwargs) -> None:
+def qn_state_analyze(n: int, proto_name: str, est_name: str, test_code: str, filename: str = None, **kwargs) -> Result:
     """Wrapper to run QTB for a set of qubits
 
     If ``filename`` argument is not provided, it is generated automatically and printed out.
@@ -202,11 +202,14 @@ def qn_state_analyze(n: int, proto_name: str, est_name: str, test_code: str, fil
         raise ValueError("Unknown estimator name")
 
     if proto_name == "fmub":
+        from pyqtb.methods.proto_mub import proto_mub
+        proto_fun = proto_mub(dim)
+    elif proto_name == "fmub":
         from pyqtb.methods.proto_fmub import proto_fmub
         proto_fun = proto_fmub(dim)
     elif proto_name == "amub":
         from pyqtb.methods.proto_amub import proto_amub
-        proto_fun = proto_amub(dim.full, est_fun)
+        proto_fun = proto_amub(dim, est_fun)
     elif proto_name == "fo":
         from pyqtb.methods.proto_fo import proto_fo
         proto_fun = proto_fo(est_fun)
@@ -225,4 +228,4 @@ def qn_state_analyze(n: int, proto_name: str, est_name: str, test_code: str, fil
 
     from pyqtb.analyze import analyze
     from pyqtb.tests import get_test
-    analyze(dim, proto_fun, est_fun, get_test(test_code, dim), filename=filename, **kwargs)
+    return analyze(dim, proto_fun, est_fun, get_test(test_code, dim), filename=filename, **kwargs)

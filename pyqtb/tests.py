@@ -2,6 +2,7 @@
 
 See details in https://arxiv.org/abs/2012.15656
 """
+import sys
 import numpy as np
 
 from pyqtb import Dimension, Test
@@ -108,6 +109,6 @@ def get_test(test_code: str, dim: Dimension) -> Test:
     :return: Test specification
     """
     try:
-        return locals()[test_code.lower() + "_test"](dim)
+        return getattr(sys.modules[__name__], test_code.lower() + "_test")(dim)
     except KeyError:
         raise ValueError(f"QTB Error: test with code {test_code} not found")
