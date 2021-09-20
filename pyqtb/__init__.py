@@ -107,10 +107,11 @@ class ProtocolHandler(Protocol):
 
         from pyqtb.utils.helpers import static_protocol
         def povm_protocol_handler():
-            return static_protocol({
-                'mtype': 'povm',  # POVM measurement type
-                'maps': [[...], [...], ...],  # list of POVM operators sets
-            })
+            return static_protocol([
+                Measurement(nshots=1, map=[...], extras={"type": "povm"}),  # measurement 1
+                Measurement(nshots=1, map=[...], extras={"type": "povm"}),  # measurement 2
+                ...
+            ])
     """
     def __call__(self, jn: int, ntot: int, meas: List[Measurement], data: List[Any], dim: Dimension) -> Measurement:
         ...

@@ -2,7 +2,7 @@
 import numpy as np
 from copy import copy
 from types import SimpleNamespace
-from typing import List, Protocol, Optional
+from typing import List, Protocol, Optional, Any
 
 from pyqtb import Dimension, Measurement, ProtocolHandler, DataSimulatorHandler
 import pyqtb.utils.stats as stats
@@ -118,9 +118,17 @@ class IterProtocolHandler(Protocol):
 
     The handler serves iterative_protocol.
     It is basically the same as pyqtb.ProtocolHandler but includes extra first argument ``iteration: int`` for iteration
-    number.
+    number and should return a list of measurements.
     """
-    def __call__(self, iteration: int, jn: int, ntot: int, meas: List[Measurement], *args) -> List[Measurement]:
+    def __call__(
+        self,
+        iteration: int,
+        jn: int,
+        ntot: int,
+        meas: List[Measurement],
+        data: List[Any],
+        dim: Dimension
+    ) -> List[Measurement]:
         ...
 
 
@@ -138,7 +146,7 @@ def iterative_protocol(iteration_protocol: IterProtocolHandler) -> ProtocolHandl
         current: int
         length: Optional[int] = None
 
-    def handler(jn: int, ntot: int, meas: List[Measurement], *args) -> Measurement:
+    def handler(jn: int, ntot: int, meas: List[Measurement], data: List[Any], dim: Dimension) -> Measurement:
         if meas:
             iteration = copy(meas[-1].extras["iteration"])
             iteration.current += 1
@@ -148,7 +156,7 @@ def iterative_protocol(iteration_protocol: IterProtocolHandler) -> ProtocolHandl
             iteration = Iteration(number=1, start=0, current=0)
 
         if iteration.length is None:
-            protocol = iteration_protocol(iteration.number, jn, ntot, meas, *args)
+            protocol = iteration_protocol(iteration.number, jn, ntot, meas, data, dim)
             assert sum([m.nshots for m in protocol]) <= (ntot - jn),\
                 "QTB Error: Iteration protocol total sample size exceeds available number of measurements"
             meas_current = protocol[0]
