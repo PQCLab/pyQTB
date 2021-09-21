@@ -46,7 +46,7 @@ def simulate_experiment(
     return data, meas, time_proto, sm_flag
 
 
-def check_dm(dm: np.ndarray, tol: float = 1e-8) -> None:
+def check_dm(dm: np.ndarray, tol: float = 1e-6) -> None:
     """Checks whether the input is a valid density matrix
 
     :raises AssertionError: if input is not a valid density matrix
