@@ -25,6 +25,14 @@ dim = Dimension([2, 2])
 result = collect(dim, proto_fmub(dim), est_ppi(), rps_test(dim))
 ```
 
+To get and print a basic report over benchmarks one runs the following commands.
+``` python
+from pyqtb.analyze import report, as_table
+
+r = report(result)
+print(as_table(report))
+```
+
 ## License
 
 All code found in this repository is licensed under GPL v3
