@@ -24,6 +24,7 @@ setup(
         "numpy>=1.20.2",
         "scipy>=1.6.2",
         "dill>=0.3.4",
-        "py-cpuinfo>=8.0.0"
+        "py-cpuinfo>=8.0.0",
+        "tabulate>=0.8.9"
     ],
 )

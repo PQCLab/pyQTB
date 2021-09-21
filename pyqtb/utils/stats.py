@@ -4,10 +4,32 @@ The module contains routines for random number generation (RNG)
 These generators are useful to synchronize from various QTB libraries and make the results repeatable.
 """
 import numpy as np
+from itertools import product
 
-from typing import Union, Tuple, Optional, List
+from typing import Union, Tuple, Optional, List, NamedTuple
 from scipy.stats import norm as norm
 from scipy.linalg import cholesky as chol
+from scipy.stats.distributions import chi2
+
+
+class RNG:
+    rng = np.random.RandomState()
+
+    @classmethod
+    def seed(cls, n):
+        cls.rng.seed(n)
+
+    @classmethod
+    def rand(cls, sz=()):
+        return cls.rng.rand(*sz)
+
+    @classmethod
+    def get_state(cls):
+        return cls.rng.get_state()
+
+    @classmethod
+    def set_state(cls, state):
+        cls.rng.set_state(state)
 
 
 def set_state(state: Union[int, Tuple]) -> None:
@@ -137,21 +159,99 @@ def sample(p: np.ndarray, n: int) -> np.ndarray:
     return k
 
 
-class RNG:
-    rng = np.random.RandomState()
+def medcouple(x: np.ndarray) -> float:
+    """Calculates medcouple for a vector array
 
-    @classmethod
-    def seed(cls, n):
-        cls.rng.seed(n)
+    Medcouple is a robust estimation for the data skewness.
+    See https://en.wikipedia.org/wiki/Medcouple.
 
-    @classmethod
-    def rand(cls, sz=()):
-        return cls.rng.rand(*sz)
+    :param x: Data array
+    :return: Medcouple value
+    """
+    x = np.sort(x)
+    len_x = len(x)
+    xm = (x[int(np.floor((len_x - 1) / 2))] + x[int(np.ceil((len_x - 1) / 2))]) / 2
 
-    @classmethod
-    def get_state(cls):
-        return cls.rng.get_state()
+    x_positive, x_negative = list(x[x >= xm]), list(x[x <= xm])
+    len_xp, len_xn = len(x_positive), len(x_negative)
+    h = []
+    for jp, jn in product(range(len_xp), range(len_xn)):
+        xp, xn = x_positive[jp], x_negative[jn]
+        if xp > xn:
+            h.append(((xp - xm) - (xm - xn)) / (xp - xn))
+        else:
+            h.append(np.sign(len_xp - 1 - jp - jn))
 
-    @classmethod
-    def set_state(cls, state):
-        cls.rng.set_state(state)
+    h = np.sort(h)
+    len_h = len(h)
+    return (h[int(np.floor((len_h - 1) / 2))] + h[int(np.ceil((len_h - 1) / 2))]) / 2
+
+
+class WhiskerBox(NamedTuple):
+    """Whisker box data
+
+    Attributes:
+        median      Median
+        q25         Lower quantile
+        q75         Upper quantile
+        iqr         Inter-quantile range
+        mc          Medcouple
+        w1          Lower bound of whisker box
+        w2          Upper bound of whisker box
+        data        Data array
+        is_outlier  Boolean array that shows outliers of data array
+    """
+    median: float
+    q25: float
+    q75: float
+    iqr: float
+    mc: float
+    w1: float
+    w2: float
+    data: np.ndarray
+    is_outlier: np.ndarray
+
+
+def adjusted_whisker_box(data: np.ndarray) -> WhiskerBox:
+    """Calculates adjusted whisker box
+
+    See https://en.wikipedia.org/wiki/Box_plot#Variations
+
+    :param data: Data array
+    :return: Whisker box data
+    """
+    q = np.quantile(data, [.25, .5, .75], interpolation="midpoint")
+    iqr = q[2] - q[0]
+    mc = medcouple(data)
+    w1 = (q[0] - 1.5 * iqr * np.exp(-4 * mc)) if mc > 0 else (q[0] - 1.5 * iqr * np.exp(-3 * mc))
+    w2 = (q[2] + 1.5 * iqr * np.exp(+3 * mc)) if mc > 0 else (q[0] - 1.5 * iqr * np.exp(+4 * mc))
+    return WhiskerBox(
+        median=q[1], q25=q[0], q75=q[2], iqr=iqr,
+        mc=mc, w1=w1, w2=w2,
+        data=data.copy(), is_outlier=np.logical_or(data < w1, data > w2)
+    )
+
+
+def get_bound(
+    sample_size: Union[float, np.ndarray], dim: int, rank: int, bound_type: str = "mean", quantile: float = None
+) -> Union[float, np.ndarray]:
+    """Calculates theoretical bound for state tomography infidelity 1-F
+
+    See details in https://arxiv.org/abs/2012.15656.
+
+    :param sample_size: Total QT sample size
+    :param dim: Total system dimension
+    :param rank: State rank
+    :param bound_type: Bound type (default: mean), optional
+    :param quantile: Quantile value (for ``bound_type="quantile"``), optional
+    :return: Infidelity bound
+    """
+    nu = (2 * dim - rank) * rank - 1
+    if bound_type == "mean":
+        return nu ** 2 / (4 * sample_size * (dim - 1))
+    elif bound_type == "std":
+        return nu ** 2 / (4 * sample_size * (dim - 1)) * np.sqrt(2 * nu)
+    elif bound_type == "quantile":
+        return chi2.ppf(quantile, nu) * nu / (4 * sample_size * (dim - 1))
+    else:
+        raise ValueError("QTB Error: bound type unknown")

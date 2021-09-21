@@ -1,4 +1,4 @@
-"""The module contains the function for performing tests on quantum tomography (QT) method.
+"""The module contains functions for performing and reporting tests on quantum tomography (QT) method.
 
 A QT method is specified by the set of measurements performed over quantum system and by the quantum state estimator.
 To specify the QT method one should define ProtocolHandler and EstimatorHandler.
@@ -8,7 +8,11 @@ See details in https://arxiv.org/abs/2012.15656
 """
 import time
 import numpy as np
-from typing import Optional
+from typing import Optional, List, NamedTuple
+from warnings import warn
+from tabulate import tabulate
+
+from scipy.interpolate import interp1d
 
 from pyqtb import Dimension, ProtocolHandler, EstimatorHandler, Test, Result
 
@@ -29,7 +33,9 @@ def collect(
     par_job_id: Optional[int] = None,
     par_job_num: Optional[int] = None
 ) -> Result:
-    """Runs tests to collect the QT method.
+    """Runs tests to collect the QT method data.
+
+    See details in https://arxiv.org/abs/2012.15656.
 
     Given the argument ``filename`` is set, the program stores the intermediate analysis results in the file.
     If the file already exists the program tries to load existing results and update them.
@@ -112,3 +118,147 @@ def collect(
         print("DONE")
 
     return result
+
+
+class BenchmarkValues(NamedTuple):
+    """Benchmark values
+
+    See details in https://arxiv.org/abs/2012.15656.
+
+    Attributes:
+        quantile            Quantile that was used to calculate benchmark values
+        error_rate          Error rate that was used to calculate benchmark values
+        num_samples         Sample size
+        extrapolated        Boolean flag if sample size was obtained by extrapolation
+        num_measurements    Number of different measurements
+        time_protocol       Total time of measurement protocol calculation, sec
+        time_estimation     Time of state estimation, sec
+        efficiency          QT method efficiency
+        outliers_ratio      Ratio of number of outliers
+        factorized          Boolean flag that shows if QT method uses factorized measurements only
+    """
+    quantile: float
+    error_rate: float
+    num_samples: int
+    extrapolated: bool
+    num_measurements: int
+    time_protocol: float
+    time_estimation: float
+    efficiency: float
+    outliers_ratio: float
+    factorized: bool
+
+
+def report(
+    result: Result,
+    error_rates: Optional[List[float]] = None,
+    quantile: float = .95
+) -> List[BenchmarkValues]:
+    """Generates the report over QT method benchmark values
+
+    See details in https://arxiv.org/abs/2012.15656.
+
+    :param result: Result of data collection
+    :param error_rates: List of benchmark error rates (default: [1e-1, 1e-2, 1e-3, 1e-4]), optional
+    :param quantile: Quantile value for data interpolation (default: .95), optional
+    :return: List of benchmark values for
+    """
+    if error_rates is None:
+        error_rates = [1e-1, 1e-2, 1e-3, 1e-4]
+
+    n_exp = len(result.experiments)
+    experiments = []
+    for e in result.experiments:
+        if len(e.fidelity) > 0:
+            experiments.append(e)
+
+    if len(experiments) < len(result.experiments):
+        raise warn(
+            f"QTB Warning: Statistics is incomplete, {n_exp - len(experiments)}/{n_exp} results are empty"
+        )
+
+    df = np.array([(1 - np.array(e.fidelity)) for e in experiments])
+    nmeas = np.array([np.array(e.nmeas) for e in experiments])
+    time_proto = np.array([np.array(e.time_proto) for e in experiments])
+    time_est = np.array([np.array(e.time_est) for e in experiments])
+
+    outliers_ratio = np.array([
+        np.sum(stats.adjusted_whisker_box(df[:, j]).is_outlier) / n_exp for j in range(df.shape[1])
+    ])
+    sm_flag = all([e.sm_flag for e in experiments])
+
+    df_mean = np.mean(df, axis=0)
+    df_quantile = np.quantile(df, quantile, axis=0, interpolation="midpoint")
+    nmeas_quantile = np.quantile(nmeas, quantile, axis=0, interpolation="midpoint")
+    time_proto_quantile = np.quantile(time_proto, quantile, axis=0, interpolation="midpoint")
+    time_est_quantile = np.quantile(time_est, quantile, axis=0, interpolation="midpoint")
+
+    benchmarks = []
+    log_n = np.log10(result.test.nsample)
+    for error_rate in error_rates:
+        log_nb = interp1d(np.log10(df_quantile), log_n, fill_value="extrapolate")(np.log10(error_rate))
+        nb = int(10 ** log_nb)
+        extrapolated = not (min(result.test.nsample) <= nb <= max(result.test.nsample))
+
+        efficiency = (
+            stats.get_bound(nb, result.dim.full, result.test.rank, "mean") /
+            (10 ** interp1d(log_n, np.log10(df_mean))(log_nb))
+        ) if not extrapolated else None
+
+        benchmarks.append(BenchmarkValues(
+            quantile=quantile,
+            error_rate=error_rate,
+            num_samples=nb,
+            extrapolated=extrapolated,
+            num_measurements=int(interp1d(log_n, nmeas_quantile)(log_nb)) if not extrapolated else None,
+            time_protocol=float(interp1d(log_n, time_proto_quantile)(log_nb)) if not extrapolated else None,
+            time_estimation=float(interp1d(log_n, time_est_quantile)(log_nb)) if not extrapolated else None,
+            efficiency=efficiency,
+            outliers_ratio=float(interp1d(log_n, outliers_ratio)(log_nb)) if not extrapolated else None,
+            factorized=sm_flag
+        ))
+
+    return benchmarks
+
+
+def as_table(benchmarks: List[BenchmarkValues], display_fields: List[str] = None) -> str:
+    """Returns a string formatted table of benchmark values
+
+    :param benchmarks: List of benchmark values
+    :param display_fields: Fields to display
+    :return: String table
+    """
+    field_names = {
+        "quantile": "Quantile",
+        "error_rate": "Error rate, %",
+        "num_samples": "Sample size",
+        "num_measurements": "Number of measurements",
+        "time_protocol": "Protocol time, sec",
+        "time_estimation": "Estimation time, sec",
+        "efficiency": "Efficiency, %",
+        "outliers_ratio": "Outliers ratio",
+        "factorized": "Factorized measurements"
+    }
+
+    fields = field_names.keys() if display_fields is None else display_fields
+
+    def to_string(field: str, bv: BenchmarkValues) -> str:
+        value = getattr(bv, field)
+        if value is None:
+            return "-"
+        elif field == "error_rate" or field == "efficiency":
+            return f"{value * 100:.2f}"
+        elif field == "num_samples":
+            return f"{value:,}".replace(",", " ") + ("*" if bv.extrapolated else "")
+        elif field == "time_protocol" or field == "time_estimation":
+            return f"{value:.8f}"
+        elif field == "factorized":
+            return "Y" if value else "N"
+        else:
+            return str(value)
+
+    rows = []
+    for b in benchmarks:
+        rows.append([to_string(field, b) for field in fields])
+
+    return tabulate(rows, headers=[field_names[field] for field in fields], colalign="left")
