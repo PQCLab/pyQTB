@@ -179,7 +179,7 @@ def report(
     :param result: Result of data collection
     :param error_rates: List of benchmark error rates (default: [1e-1, 1e-2, 1e-3, 1e-4]), optional
     :param quantile: Quantile value for data interpolation (default: .95), optional
-    :return: List of benchmark values for
+    :return: List of benchmark values for every input error rate
     """
     if error_rates is None:
         error_rates = [1e-1, 1e-2, 1e-3, 1e-4]
@@ -227,6 +227,44 @@ def report(
             efficiency=efficiency,
             outliers_ratio=float(interp1d(log_n, outliers_ratio)(log_nb)) if not extrapolated else None,
             factorized=sm_flag
+        ))
+
+    return benchmarks
+
+
+def compare(
+    results: List[Result],
+    error_rate: float = 1e-3,
+    quantile: float = .95,
+    show_bound: bool = True,
+    titles: List[str] = None
+) -> List[BenchmarkValues]:
+    """Generates the report over benchmark values for a set of QT methods
+
+    See details in https://arxiv.org/abs/2012.15656.
+
+    :param results: List of results of data collection for different methods
+    :param error_rate: Benchmark error rate (default: 1e-3), optional
+    :param quantile: Quantile value for data interpolation (default: .95), optional
+    :param show_bound: Show sample size lower bound (default: True), optional
+    :param titles: List of QT methods titles for report (default: results field `name` values), optional
+    :return: List of benchmark values for every QT method
+    """
+    benchmarks = []
+
+    for jb, result in enumerate(results):
+        b = report(result, error_rates=[error_rate], quantile=quantile)[0]
+        if titles is not None:
+            b = b._replace(title=titles[jb])
+        benchmarks.append(b)
+
+    if show_bound:
+        dim, rank = results[0].test.dim.full, results[0].test.rank
+        benchmarks.insert(0, BenchmarkValues(
+            title="Lower bound", quantile=quantile, error_rate=error_rate,
+            num_samples=int(stats.get_bound(error_rate, dim, rank, "quantile", quantile)),
+            extrapolated=False, num_measurements=None, time_protocol=None, time_estimation=None,
+            efficiency=1., outliers_ratio=None, factorized=None
         ))
 
     return benchmarks
@@ -283,6 +321,15 @@ def plot(
     quantile: float = .95,
     **kwargs
 ):
+    """Plots the result benchmarks versus sample size
+
+    :param result: Result of data collection
+    :param parameter: Parameter to plot (default: infidelity), optional
+    :param view: Plot view (default: quantile), optional
+    :param quantile: Quantile value for quantile plot view (default: 0.95), optional
+    :param kwargs: Additional plot arguments to pass into matplotlib
+    :return: Plot handler
+    """
     if "label" not in kwargs:
         kwargs.update({"label": result.name})
 
@@ -308,48 +355,21 @@ def plot(
         raise ValueError("QTB Error: unknown plot view")
 
 
-def plot_bound(
+def plot_infidelity_bound(
     test: Test,
-    view: str = "quantile",
+    bound_type: str = "quantile",
     quantile: float = .95,
     **kwargs
 ):
+    """Plots the lower bound of infidelity for a specific test versus sample size
+
+    :param test: Test
+    :param bound_type: Bound type (default: quantile), optional
+    :param quantile: Quantile value for quantile bound type (default: 0.95), optional
+    :param kwargs: Additional plot arguments to pass into matplotlib
+    :return: Plot handler
+    """
     if "label" not in kwargs:
         kwargs.update({"label": "Lower bound"})
     dim, rank = test.dim.full, test.rank
-    plt.plot(test.nsample, stats.get_bound(np.array(test.nsample), dim, rank, view, quantile), **kwargs)
-
-
-def compare(
-    results: List[Result],
-    error_rate: float = 1e-3,
-    quantile: float = .95,
-    show_bound: bool = True,
-    titles: List[str] = None
-) -> List[BenchmarkValues]:
-
-    benchmarks = []
-
-    for jb, result in enumerate(results):
-        b = report(result, error_rates=[error_rate], quantile=quantile)[0]
-        if titles is not None:
-            b = b._replace(title=titles[jb])
-        benchmarks.append(b)
-
-    if show_bound:
-        dim, rank = results[0].test.dim.full, results[0].test.rank
-        benchmarks.insert(0, BenchmarkValues(
-            title="Lower bound",
-            quantile=quantile,
-            error_rate=error_rate,
-            num_samples=int(stats.get_bound(error_rate, dim, rank, "quantile", quantile)),
-            extrapolated=False,
-            num_measurements=None,
-            time_protocol=None,
-            time_estimation=None,
-            efficiency=1.,
-            outliers_ratio=None,
-            factorized=None
-        ))
-
-    return benchmarks
+    plt.plot(test.nsample, stats.get_bound(np.array(test.nsample), dim, rank, bound_type, quantile), **kwargs)
