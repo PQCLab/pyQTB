@@ -13,8 +13,9 @@ from warnings import warn
 from tabulate import tabulate
 
 from scipy.interpolate import interp1d
+import matplotlib.pyplot as plt
 
-from pyqtb import Dimension, ProtocolHandler, EstimatorHandler, Test, Result
+from pyqtb import Dimension, ProtocolHandler, EstimatorHandler, Test, Result, ExperimentResult
 
 import pyqtb.utils.tools as tools
 import pyqtb.utils.stats as stats
@@ -126,6 +127,7 @@ class BenchmarkValues(NamedTuple):
     See details in https://arxiv.org/abs/2012.15656.
 
     Attributes:
+        title               Title of the QT method
         quantile            Quantile that was used to calculate benchmark values
         error_rate          Error rate that was used to calculate benchmark values
         num_samples         Sample size
@@ -137,16 +139,32 @@ class BenchmarkValues(NamedTuple):
         outliers_ratio      Ratio of number of outliers
         factorized          Boolean flag that shows if QT method uses factorized measurements only
     """
+    title: str
     quantile: float
     error_rate: float
     num_samples: int
-    extrapolated: bool
-    num_measurements: int
-    time_protocol: float
-    time_estimation: float
-    efficiency: float
-    outliers_ratio: float
-    factorized: bool
+    extrapolated: Optional[bool]
+    num_measurements: Optional[int]
+    time_protocol: Optional[float]
+    time_estimation: Optional[float]
+    efficiency: Optional[float]
+    outliers_ratio: Optional[float]
+    factorized: Optional[bool]
+
+
+def get_experiments(result: Result) -> List[ExperimentResult]:
+    n_exp = len(result.experiments)
+    experiments = []
+    for e in result.experiments:
+        if len(e.fidelity) > 0:
+            experiments.append(e)
+
+    if len(experiments) < len(result.experiments):
+        raise warn(
+            f"QTB Warning: Statistics is incomplete, {n_exp - len(experiments)}/{n_exp} results are empty"
+        )
+
+    return experiments
 
 
 def report(
@@ -166,16 +184,8 @@ def report(
     if error_rates is None:
         error_rates = [1e-1, 1e-2, 1e-3, 1e-4]
 
-    n_exp = len(result.experiments)
-    experiments = []
-    for e in result.experiments:
-        if len(e.fidelity) > 0:
-            experiments.append(e)
-
-    if len(experiments) < len(result.experiments):
-        raise warn(
-            f"QTB Warning: Statistics is incomplete, {n_exp - len(experiments)}/{n_exp} results are empty"
-        )
+    experiments = get_experiments(result)
+    n_exp = len(experiments)
 
     df = np.array([(1 - np.array(e.fidelity)) for e in experiments])
     nmeas = np.array([np.array(e.nmeas) for e in experiments])
@@ -201,11 +211,12 @@ def report(
         extrapolated = not (min(result.test.nsample) <= nb <= max(result.test.nsample))
 
         efficiency = (
-            stats.get_bound(nb, result.dim.full, result.test.rank, "mean") /
-            (10 ** interp1d(log_n, np.log10(df_mean))(log_nb))
+                stats.get_bound(nb, result.dim.full, result.test.rank, "mean") /
+                (10 ** interp1d(log_n, np.log10(df_mean))(log_nb))
         ) if not extrapolated else None
 
         benchmarks.append(BenchmarkValues(
+            title=result.name,
             quantile=quantile,
             error_rate=error_rate,
             num_samples=nb,
@@ -229,6 +240,7 @@ def as_table(benchmarks: List[BenchmarkValues], display_fields: List[str] = None
     :return: String table
     """
     field_names = {
+        "title": "QT Method",
         "quantile": "Quantile",
         "error_rate": "Error rate, %",
         "num_samples": "Sample size",
@@ -262,3 +274,67 @@ def as_table(benchmarks: List[BenchmarkValues], display_fields: List[str] = None
         rows.append([to_string(field, b) for field in fields])
 
     return tabulate(rows, headers=[field_names[field] for field in fields], colalign="left")
+
+
+def plot(
+    result: Result,
+    parameter: str = "infidelity",
+    color: str = "tab:blue",
+    view: str = "quantile",
+    quantile: float = .95
+):
+    def get_values(e: ExperimentResult) -> np.ndarray:
+        if parameter == "infidelity":
+            return 1 - np.array(e.fidelity)
+        else:
+            return np.array(getattr(e, parameter))
+
+    experiments = get_experiments(result)
+    data = np.array([get_values(e) for e in experiments])
+
+    if view == "stats":
+        pass  # todo
+    elif view == "errorbar":
+        pass  # todo
+    elif view == "mean":
+        pass  # todo
+    elif view == "quantile":
+        data_quantile = np.quantile(data, quantile, axis=0, interpolation="midpoint")
+        return plt.plot(result.test.nsample, data_quantile, color=color)
+    else:
+        raise ValueError("QTB Error: unknown plot view")
+
+
+def compare(
+    results: List[Result],
+    error_rate: float = 1e-3,
+    quantile: float = .95,
+    show_bound: bool = True,
+    titles: List[str] = None
+) -> List[BenchmarkValues]:
+
+    benchmarks = []
+
+    for jb, result in enumerate(results):
+        b = report(result, error_rates=[error_rate], quantile=quantile)[0]
+        if titles is not None:
+            b = b._replace(title=titles[jb])
+        benchmarks.append(b)
+
+    if show_bound:
+        dim, rank = results[0].test.dim.full, results[0].test.rank
+        benchmarks.insert(0, BenchmarkValues(
+            title="Lower bound",
+            quantile=quantile,
+            error_rate=error_rate,
+            num_samples=int(stats.get_bound(error_rate, dim, rank, "quantile", quantile)),
+            extrapolated=False,
+            num_measurements=None,
+            time_protocol=None,
+            time_estimation=None,
+            efficiency=1.,
+            outliers_ratio=None,
+            factorized=None
+        ))
+
+    return benchmarks

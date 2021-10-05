@@ -233,25 +233,29 @@ def adjusted_whisker_box(data: np.ndarray) -> WhiskerBox:
 
 
 def get_bound(
-    sample_size: Union[float, np.ndarray], dim: int, rank: int, bound_type: str = "mean", quantile: float = None
+    x: Union[float, np.ndarray], dim: int, rank: int,
+    bound_type: str = "mean", quantile: float = None
 ) -> Union[float, np.ndarray]:
-    """Calculates theoretical bound for state tomography infidelity 1-F
+    """Calculates theoretical bound for state tomography infidelity 1-F or its inverse.
 
+    If the input is the total sample size the function returns the corresponding bound for infidelity.
+    If the input is the infidelity bound the function returns corresponding total sample size.
     See details in https://arxiv.org/abs/2012.15656.
 
-    :param sample_size: Total QT sample size
+    :param x: Total QT sample size or infidelity bound
     :param dim: Total system dimension
     :param rank: State rank
     :param bound_type: Bound type (default: mean), optional
     :param quantile: Quantile value (for ``bound_type="quantile"``), optional
+    :param inverse: If True the function returns inverse bound (default: False), optional
     :return: Infidelity bound
     """
     nu = (2 * dim - rank) * rank - 1
     if bound_type == "mean":
-        return nu ** 2 / (4 * sample_size * (dim - 1))
+        return nu ** 2 / (4 * x * (dim - 1))
     elif bound_type == "std":
-        return nu ** 2 / (4 * sample_size * (dim - 1)) * np.sqrt(2 * nu)
+        return nu ** 2 / (4 * x * (dim - 1)) * np.sqrt(2 * nu)
     elif bound_type == "quantile":
-        return chi2.ppf(quantile, nu) * nu / (4 * sample_size * (dim - 1))
+        return chi2.ppf(quantile, nu) * nu / (4 * x * (dim - 1))
     else:
         raise ValueError("QTB Error: bound type unknown")

@@ -25,6 +25,7 @@ setup(
         "scipy>=1.6.2",
         "dill>=0.3.4",
         "py-cpuinfo>=8.0.0",
-        "tabulate>=0.8.9"
+        "tabulate>=0.8.9",
+        "matplotlib>=3.4.3"
     ],
 )
