@@ -279,10 +279,13 @@ def as_table(benchmarks: List[BenchmarkValues], display_fields: List[str] = None
 def plot(
     result: Result,
     parameter: str = "infidelity",
-    color: str = "tab:blue",
     view: str = "quantile",
-    quantile: float = .95
+    quantile: float = .95,
+    **kwargs
 ):
+    if "label" not in kwargs:
+        kwargs.update({"label": result.name})
+
     def get_values(e: ExperimentResult) -> np.ndarray:
         if parameter == "infidelity":
             return 1 - np.array(e.fidelity)
@@ -300,9 +303,21 @@ def plot(
         pass  # todo
     elif view == "quantile":
         data_quantile = np.quantile(data, quantile, axis=0, interpolation="midpoint")
-        return plt.plot(result.test.nsample, data_quantile, color=color)
+        return plt.plot(result.test.nsample, data_quantile, **kwargs)
     else:
         raise ValueError("QTB Error: unknown plot view")
+
+
+def plot_bound(
+    test: Test,
+    view: str = "quantile",
+    quantile: float = .95,
+    **kwargs
+):
+    if "label" not in kwargs:
+        kwargs.update({"label": "Lower bound"})
+    dim, rank = test.dim.full, test.rank
+    plt.plot(test.nsample, stats.get_bound(np.array(test.nsample), dim, rank, view, quantile), **kwargs)
 
 
 def compare(
