@@ -33,6 +33,16 @@ r = report(result)
 print(as_table(report))
 ```
 
+One can also compare different methods.
+``` python
+from pyqtb.analyze import compare, as_table
+
+r = report([result1, result2])
+print(as_table(report))
+```
+
+Module `pyqtb.analyze` also contains plot functions.
+
 ## License
 
 All code found in this repository is licensed under GPL v3
